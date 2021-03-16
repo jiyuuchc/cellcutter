@@ -8,7 +8,6 @@ def normalize_img(img_in):
   img = img_in.astype(np.float32)
   if len(img.shape) == 2:
     img = img[..., np.newaxis]
-  d0,d1,ch = img.shape
   img -= np.min(img, axis = (0,1))
   img /= np.max(img, axis = (0,1))
   return img
@@ -63,6 +62,7 @@ def gen_data_model_a(img, marker_img, seg_img, out_size=64):
   '''
 
   img = normalize_img(img)
+  d0,d1,ch = img.shape
 
   max_index = np.max(marker_img)
 
