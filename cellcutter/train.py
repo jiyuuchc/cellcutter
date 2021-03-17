@@ -1,24 +1,28 @@
 import tensorflow as tf
 import numpy as np
 
-def cutter_loss(y, coords, img_template, lam = 1.0):
-  img_template.fill(0.0)
+def pad_cropped(cropped, offsets, size):
+    '''
+    pad the 'cropped' img so that the size increases by 'size'.
+    padding is asymetric, controlled by 'offset' (1x2 array)
+    '''
+    paddings = tf.constant([[offsets[0], size - offset[0]], [offsets[1], size - offsets[1]]])
+    return tf.pad(cropped, paddings)
+
+def cutter_loss(y, coords, area_size = 320, lam = 1.0):
+  bn, d0, d1 = y.shape
 
   y_pred = tf.math.sigmoid(y)
-  y_pred_i = 1 - y_pred
-  log_y_i = tf.math.log(y_pred_i)
 
-  bn, d0, d1 = y.shape
-  for i in range(bn):
-    c0 = int(coords[i,0])
-    c1 = int(coords[i,1])
-    img_template[c0:c0 + d0, c1:c1+d1] += log_y_i[i,...]
+  loss = - tf.math.reduce_sum(y_pred)
 
-  loss = - tf.math.reduce_mean(y_pred) * bn
+  y_pred = tf.stack(
+    [pad_cropped(cropped, coord, area_size) for cropped,coord in zip(tf.unstack(y_pred), list(coords))]
+  )
 
-  for i in range(bn):
-    c0 = int(coords[i,0])
-    c1 = int(coords[i,1])
-    loss -= lam * tf.reduce_mean((img_template[c0:c0+d0, c1:c1+d1] - log_y_i[i,...]) * y_pred)
+  log_y_i = tf.math.log(1.0 - y_pred + tf.keras.backend.epsilon())
+  log_y_i = tf.reduce_sum(log_y_i, axis = 0) - log_y_i
 
-  return loss
+  loss -= tf.reduce_sum(y_pred * log_y_i)
+
+  return loss / bn

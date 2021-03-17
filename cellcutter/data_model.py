@@ -52,7 +52,7 @@ def gen_data_model_b(data_img, marker_img, crop_size = 64, area_size = 320):
     a1 = rng.integers(d1 - area_size - crop_size)
 
     all_coord_indices = [ i for i in range(len(indices)) if is_within(coords[i,:], (a0, a1, area_size, area_size)) ]
-    yield (img_stack[all_coord_indices, ...], coords[all_coord_indices,:])
+    yield (img_stack[all_coord_indices, ...], coords[all_coord_indices,:] - np.array([a0,a1], dtype=coords.dtype))
 
 def gen_data_model_a(img, marker_img, seg_img, out_size=64):
   '''
