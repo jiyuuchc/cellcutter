@@ -3,7 +3,7 @@ from numpy.random import default_rng
 
 module_rng = default_rng()
 
-class DataModel:
+class Dataset:
 
   def __init__(self, data_img, marker_img, label_img = None, crop_size = 64):
     if data_img.shape != marker_img.shape or (label_img is not None and data_img.shape != label_img.shape):
@@ -76,7 +76,11 @@ class DataModel:
       a0 = rng.integers(d0 - area_size - crop_size)
       a1 = rng.integers(d1 - area_size - crop_size)
 
-      all_indices = [k for k in self.patch_set.keys() if self.is_within(self.patch_set[k][0], (a0, a1, area_size, area_size))]
+      all_indices = filter(
+        lambda k: self.is_within(self.patch_set[k][0], (a0, a1, area_size, area_size)),
+        self.patch_set.keys()
+      )
+
       data = np.stack([self.patch_set[k][1] for k in all_indices])
       coords = [self.patch_set[k][0] for k in all_indices]
       yield (data, coords)
