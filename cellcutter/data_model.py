@@ -1,87 +1,82 @@
 import numpy as np
-from scipy import ndimage
 from numpy.random import default_rng
 
-rng = default_rng()
+module_rng = default_rng()
 
-def normalize_img(img_in):
-  img = img_in.astype(np.float32)
-  if len(img.shape) == 2:
-    img = img[..., np.newaxis]
-  img -= np.min(img, axis = (0,1))
-  img /= np.max(img, axis = (0,1))
-  return img
+class DataModel:
 
-def get_coords(marker_img, crop_size):
-  d0,d1 = marker_img.shape
-  indices = np.unique(marker_img)[1:]  #ignore 0
+  def __init__(self, data_img, marker_img, label_img = None, crop_size = 64):
+    if data_img.shape != marker_img.shape or (label_img is not None and data_img.shape != label_img.shape):
+      raise ValueError('Image size not match each other')
 
-  coords = np.zeros((indices.size, 2), dtype=np.int) # coordinates of each cropped image
+    self.img = self.__normalize_img(data_img)
+    self.marker_img = marker_img
+    self.label_img = label_img
+    self.crop_size = crop_size
 
-  for i, ind in enumerate(indices):
-    coords[i,...] = np.round(ndimage.measurements.center_of_mass(marker_img == ind))
-  coords -= crop_size // 2
-  coords[:,0] = np.clip(coords[:,0], 0, d0 - crop_size)
-  coords[:,1] = np.clip(coords[:,1], 0, d1 - crop_size)
+    self.create_patches()
 
-  return coords, indices
+  def __normalize_img(self, img_in):
+    img = img_in.astype(np.float32)
+    if len(img.shape) == 2:
+      img = img[..., np.newaxis]
+    img -= np.min(img, axis = (0,1))
+    img /= np.max(img, axis = (0,1))
+    return img
 
-def is_within(coord, rect):
-  return coord[0] >= rect[0] and coord[0] < rect[0] + rect[2] and coord[1] >= rect[1] and coord[1] < rect[1] + rect[3]
+  def __center_of_mass_as_int(self, img):
+    d0, d1 = img.shape
+    s = np.sum(img)
+    c0 = int(np.sum(img, axis = 1).dot(np.arange(d0)) / s + .5)
+    c1 = int(np.sum(img, axis = 0).dot(np.arange(d1)) / s + .5)
+    return c0,c1
 
-def gen_data_model_b(data_img, marker_img, crop_size = 64, area_size = 320):
-  '''
-  img: (d0,d1,ch) image data
-  marker_img: (d0,d1), indexed binary image labeling each marker (e.g. nucleus)
-  crop_size: size ofeach cropped area
-  area_size: Size of area the crops are from
-  '''
-  coords, indices = get_coords(marker_img, crop_size)
-  img = normalize_img(data_img)
+  def __is_within(coord, rect):
+    return coord[0] >= rect[0] and coord[0] < rect[0] + rect[2] and coord[1] >= rect[1] and coord[1] < rect[1] + rect[3]
 
-  d0,d1,ch = img.shape
-  img_stack = np.zeros((len(indices), crop_size, crop_size, ch + 1), dtype = np.float32)
-  for i, ind in enumerate(indices):
-    c0 = int(coords[i,0])
-    c1 = int(coords[i,1])
-    img_stack[i,:,:,0:ch] = img[c0:c0+crop_size, c1:c1+crop_size, :]
-    img_stack[i,:,:,-1] = marker_img[c0:c0+crop_size, c1:c1+crop_size] == ind
+  def create_patches(self):
+    d0,d1 = self.marker_img.shape
+    indices = np.unique(marker_img)[1:]  #ignore 0
 
-  while True:
-    a0 = rng.integers(d0 - area_size - crop_size)
-    a1 = rng.integers(d1 - area_size - crop_size)
+    self.patch_set = dict()
+    for ind in indices:
+      c0,c1 = np.round(center_of_mass_as_int(self.marker_img == ind))
+      c0 = sorted((0, c0 - self.crop_size // 2, d0 - self.crop_size))[1]
+      c1 = sorted((0, c1 - self.crop_size // 2, d1 - self.crop_size))[1]
 
-    all_coord_indices = [ i for i in range(len(indices)) if is_within(coords[i,:], (a0, a1, area_size, area_size)) ]
-    yield (img_stack[all_coord_indices, ...], coords[all_coord_indices,:] - np.array([a0,a1], dtype=coords.dtype))
+      data_patch_1 = self.data_img[c0:c0+crop_size,c1:c1+crop_size,:]
+      data_patch_2 = self.marker_img[c0:c0+crop_size,c1:c1+crop_size] == k
+      data_patch = np.concatenate((data_patch_1, data_patch_2[...,np.newaxis]),axis = 2)
 
-def gen_data_model_a(img, marker_img, seg_img, out_size=64):
-  '''
-  img: (d0,d1,ch) image data
-  marker_img: (d0,d1), indexed binary image labeling each marker (e.g. nucleus)
-  seg_img: (d0,d1), indexed segmenentaion image labeling each cell. Ground truth
-  '''
+      if self.label_img is not None:
+        label_patch = self.label_img[c0:c0+crop_size,c1:c1+crop_size] == k
+        self.patch_set[ind] = ((c0,c1), data_patch, label_patch)
+      else:
+        self.patch_set[ind] = ((c0,c1), data_patch)
 
-  img = normalize_img(img)
-  d0,d1,ch = img.shape
+  def generator_a(self):
+    '''
+    A generator returning individual patches pairs with label: (data, labee)
+    '''
+    if self.label_img is None:
+      raise ValueError('Lable Image not set.')
 
-  max_index = np.max(marker_img)
+    for k in self.patch_set.keys():
+      c, data, label = self.patch_set[k]
+      yield (data, label)
 
-  x = np.zeros((out_size, out_size, ch + 1), dtype = np.float32)
-  y = np.zeros((out_size, out_size), dtype = np.uint8)
+  def generator_b(self, rng = None, area_size = 640):
+    '''
+    A generator returning all patches with a certain area, as well as the corresponding coordinates of all pathes
+    '''
+    if rng is None:
+      rng = module_rng
 
-  for i in range(max_index):
-    m1 = marker_img == i + 1
-    m2 = seg_img == i + 1
+    while True:
+      a0 = rng.integers(d0 - area_size - crop_size)
+      a1 = rng.integers(d1 - area_size - crop_size)
 
-    if ( not np.any(m1) or not np.any(m2)):
-      continue
-
-    c0,c1 = ndimage.measurements.center_of_mass(m1)
-    c0 = int(np.clip(np.round(c0 - out_size // 2), 0, d0 - out_size))
-    c1 = int(np.clip(np.round(c1 - out_size // 2), 0, d1 - out_size))
-
-    x[:,:,0:ch] = img[c0:c0+out_size, c1:c1+out_size, :]
-    x[:,:,-1] = m1[c0:c0+out_size, c1:c1+out_size] * 1.0
-    y = m2[c0:c0+out_size, c1:c1+out_size]
-
-    yield (x, y)
+      all_indices = [k for k in self.patch_set.keys() if self.is_within(self.patch_set[k][0], (a0, a1, area_size, area_size))]
+      data = np.stack([self.patch_set[k][1] for k in all_indices])
+      coords = [self.patch_set[k][0] for k in all_indices]
+      yield (data, coords)
