@@ -1,6 +1,8 @@
 import tensorflow as tf
 import numpy as np
 
+__all__ = ['UNet3', 'UNet4']
+
 class EncoderBlock(tf.keras.layers.Layer):
 
   INITIALIZER = 'he_normal'
