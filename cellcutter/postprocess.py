@@ -36,5 +36,5 @@ def draw_border(data, model, image, batch_size = 256):
       patch = (pred.numpy() >= 0.5).astype(np.uint8)
       edge = patch - binary_erosion(patch)
       d0,d1 = patch.shape
-      image[c0:c0+d0,c1:c1+d1] = edge
+      image[c0:c0+d0,c1:c1+d1] += edge
   return image
