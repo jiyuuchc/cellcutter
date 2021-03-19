@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+from numpy.random import default_rng
 
 def augment(img, t):
   if t == 1 or t == 3:
@@ -21,3 +22,27 @@ def train_with_label(data, model, epochs = 1, batch_size = 256):
     model.fit(dataset.batch(batch_size))
 
   model.summary()
+
+def train_self_supervised(data, model, n_epochs, area_size = 640, rng = None, batch_size = 32, callback = None):
+  if rng is None:
+    rng = default_rng()
+  g = data.generator_within_area(rng, area_size=area_size)
+  optimizer = tf.keras.optimizers.Adam()
+
+  for epoch in range(n_epochs):
+    loss_t = 0.0
+    for _ in range(batch_size):
+      d, c, mask = next(g)
+      t = int(rng.integers(4))
+      d = augment(d,t)
+      with tf.GradientTape() as tape:
+        y = cellcutter.augment(model(d), t)
+        loss = cellcutter.cutter_loss(tf.squeeze(y), c, mask = mask, area_size=area_size)
+      grads = tape.gradient(loss, model.trainable_variables)
+      optimizer.apply_gradients(zip(grads,model.trainable_variables))
+      loss_t += loss
+
+    print('Epoch: %i -- loss: %f'%(epoch,loss_t/batch_size))
+
+    if callback is not None:
+      callback(model, (d,c,mask))
