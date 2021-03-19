@@ -27,7 +27,7 @@ module_rng = default_rng()
 
 class Dataset:
 
-  def __init__(self, data_img, marker_img, mask, label_img = None, crop_size = 64, gen_fake_label = True):
+  def __init__(self, data_img, marker_img, mask_img = None, label_img = None, crop_size = 64, gen_fake_label = True):
     if label_img == None and gen_fake_label:
       label_img = expand_labels(marker_img, distance = 5)
 
@@ -37,7 +37,11 @@ class Dataset:
     self.img = self.__normalize_img(data_img)
     self.marker_img = marker_img
     self.label_img = label_img
-    self.mask = np.logical_not(mask) * tf.math.log(tf.keras.backend.epsilon())
+    if mask_img is not None:
+      mask_img = mask_img == 0
+      self.mask = np.logical_not(mask_img) * tf.math.log(tf.keras.backend.epsilon())
+    else:
+      self.mask = None
     self.crop_size = crop_size
 
     self.create_patches()
@@ -142,5 +146,8 @@ class Dataset:
       coords = [self.patch_set[k1][0] for k1 in all_indices]
       data = tf.stack([self.patch_set[k2][1] for k2 in all_indices])
       coords = np.array(coords) - np.array([a0,a1])
-      submask = self.mask[a0:a0+self.crop_size+area_size, a1:a1+self.crop_size+area_size]
+      if self.mask is not None:
+        submask = self.mask[a0:a0+self.crop_size+area_size, a1:a1+self.crop_size+area_size]
+      else:
+        submask = None
       yield data, coords, submask

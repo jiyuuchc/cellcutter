@@ -1,6 +1,11 @@
 import numpy as np
 import tensorflow as tf
-from scipy.ndimage.morphology import binary_erosion
+from skimage.morphology import binary_erosion
+from skimage.morphology import disk
+from skimage import img_as_ubyte
+from skimage.filters.rank import entropy
+import sklearn.mixture
+import maxflow
 
 def draw_label(data, model, image, batch_size = 256):
   '''
@@ -53,7 +58,7 @@ def gen_mask_from_data(data_img, entropy_disk_size = 16, graph_cut_weight = 5):
 
   gmm_model = sklearn.mixture.GaussianMixture(2)
   gmm_model.fit(entr_img.flatten()[...,np.newaxis])
-  prob = model.predict_proba(entr_img.flatten()[...,np.newaxis])[:,0].reshape(entr_img.shape)
+  prob = gmm_model.predict_proba(entr_img.flatten()[...,np.newaxis])[:,0].reshape(entr_img.shape)
 
   g = maxflow.GraphFloat()
   nodes = g.add_grid_nodes(entr_img.shape)
@@ -62,4 +67,4 @@ def gen_mask_from_data(data_img, entropy_disk_size = 16, graph_cut_weight = 5):
   g.maxflow()
   sgm_img = g.get_grid_segments(nodes)
 
-  return sem_img, entr_img
+  return sgm_img, entr_img

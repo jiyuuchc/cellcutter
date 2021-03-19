@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from numpy.random import default_rng
+from .loss import cutter_loss
 
 def augment(img, t):
   if t == 1 or t == 3:
@@ -36,13 +37,13 @@ def train_self_supervised(data, model, n_epochs, area_size = 640, rng = None, ba
       t = int(rng.integers(4))
       d = augment(d,t)
       with tf.GradientTape() as tape:
-        y = cellcutter.augment(model(d), t)
-        loss = cellcutter.cutter_loss(tf.squeeze(y), c, mask = mask, area_size=area_size)
+        y = augment(model(d), t)
+        loss = cutter_loss(tf.squeeze(y), c, mask = mask, area_size=area_size)
       grads = tape.gradient(loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads,model.trainable_variables))
       loss_t += loss
 
-    print('Epoch: %i -- loss: %f'%(epoch,loss_t/batch_size))
+    print('Epoch: %i -- loss: %f'%(epoch+1,loss_t/batch_size))
 
     if callback is not None:
       callback(model, (d,c,mask))
