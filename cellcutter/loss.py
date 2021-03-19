@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
-def cutter_loss(y, coords, area_size, lam = 1.0):
+def cutter_loss(y, coords, area_size, mask = None, lam = 3.32):
   '''
   Standard loss function
   '''
@@ -19,6 +19,8 @@ def cutter_loss(y, coords, area_size, lam = 1.0):
     [pad_img(cropped, coord) for cropped,coord in zip(tf.unstack(log_yi), list(coords))]
   )
   log_yi_sum = tf.reduce_sum(log_yi_padded, axis = 0)
+  if mask is not None:
+    log_yi_sum += mask
 
   log_yi  -= tf.stack(
     [log_yi_sum[c[0]:c[0]+d0, c[1]:c[1]+d1] for c in list(coords)]
@@ -29,7 +31,7 @@ def cutter_loss(y, coords, area_size, lam = 1.0):
 
   return loss / bn
 
-def cutter_loss_sm_area(y, coords, area_size, lam = 1.0):
+def cutter_loss_sm_area(y, coords, area_size, mask = None, lam = 3.32):
   '''
   A loss function that might be more suitable for small areas
   '''
@@ -49,6 +51,8 @@ def cutter_loss_sm_area(y, coords, area_size, lam = 1.0):
 
   log_yi = tf.math.log(1.0 - y_pred + tf.keras.backend.epsilon())
   log_yi -= tf.reduce_sum(log_yi, axis = 0)
+  if mask is not None:
+    log_yi_sum += mask
 
   loss = - tf.math.reduce_sum(y_pred)
   loss += tf.reduce_sum(y_pred * log_yi)
