@@ -37,7 +37,7 @@ def train_self_supervised(data, model, n_epochs, area_size = 640, rng = None, ba
       t = int(rng.integers(4))
       d = augment(d,t)
       with tf.GradientTape() as tape:
-        y = augment(model(d), t)
+        y = augment(model(d, training = True), t)
         loss = cutter_loss(tf.squeeze(y), c, mask = mask, area_size=area_size)
       grads = tape.gradient(loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads,model.trainable_variables))
