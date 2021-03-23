@@ -24,11 +24,14 @@ def train_with_label(data, model, epochs = 1, batch_size = 256):
 
   model.summary()
 
-def train_self_supervised(data, model, n_epochs, area_size = 640, rng = None, batch_size = 32, callback = None):
+def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size = 640, rng = None, batch_size = 32, callback = None):
   if rng is None:
     rng = default_rng()
   g = data.generator_within_area(rng, area_size=area_size)
-  optimizer = tf.keras.optimizers.Adam()
+  if optimizer is None:
+    if not hasattr(model,'optimizer'):
+      model.optimizer = tf.keras.optimizers.Adam()
+    optimizer = model.optimizer
 
   for epoch in range(n_epochs):
     loss_t = 0.0
@@ -46,4 +49,4 @@ def train_self_supervised(data, model, n_epochs, area_size = 640, rng = None, ba
     print('Epoch: %i -- loss: %f'%(epoch+1,loss_t/batch_size))
 
     if callback is not None:
-      callback(model, (d,c,mask))
+      callback(epoch)
