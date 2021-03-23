@@ -22,7 +22,7 @@ def draw_label(data, model, image, batch_size = 256):
       c0,c1 = list(coord)
       patch = (pred.numpy() >= 0.5)* label
       d0,d1 = patch.shape
-      image[c0:c0+d0,c1:c1+d1] = patch
+      image[c0:c0+d0,c1:c1+d1] = np.maximum(image[c0:c0+d0,c1:c1+d1], patch)
       label += 1
   return image
 
