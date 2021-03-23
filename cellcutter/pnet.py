@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
-__all__ = [PNet4, PNet5]
+__all__ = ['PNet4', 'PNet5']
 
 class DilatedConvolutionBlock(tf.keras.layers.Layer):
 
