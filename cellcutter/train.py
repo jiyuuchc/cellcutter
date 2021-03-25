@@ -46,7 +46,8 @@ def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size
       optimizer.apply_gradients(zip(grads,model.trainable_variables))
       loss_t += loss
 
-    print('Epoch: %i -- loss: %f'%(epoch+1,loss_t/batch_size))
+    loss_t /= batch_size
+    print('Epoch: %i -- loss: %f'%(epoch+1,loss_t))
 
     if callback is not None:
-      callback(epoch)
+      callback(loss_t)
