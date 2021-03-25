@@ -110,12 +110,12 @@ class UNet4(tf.keras.Model):
     self.encoder2 = EncoderBlock(n_channels * 2, with_batch_normalization = bn, name ='encoder2')
     self.encoder3 = EncoderBlock(n_channels * 4, with_batch_normalization = bn, name ='encoder3')
     self.encoder4 = EncoderBlock(n_channels * 8, with_batch_normalization = bn, name ='encoder4')
-    self.encoder4 = EncoderBlock(n_channels * 8, with_batch_normalization = bn, name ='encoder5')
+    self.encoder5 = EncoderBlock(n_channels * 8, with_batch_normalization = bn, name ='encoder5')
 
     self.decoder1 = DecoderBlock(n_channels * 8, with_batch_normalization = bn, name ='decoder1')
     self.decoder2 = DecoderBlock(n_channels * 4, with_batch_normalization = bn, name ='decoder2')
     self.decoder3 = DecoderBlock(n_channels * 2, with_batch_normalization = bn, name ='decoder3')
-    self.decoder3 = DecoderBlock(n_channels, with_batch_normalization = bn, name ='decoder4')
+    self.decoder4 = DecoderBlock(n_channels, with_batch_normalization = bn, name ='decoder4')
 
     # logits output
     self.output_layer = tf.keras.layers.Conv2D(1, 1, padding = 'same', kernel_initializer = "he_normal", name ='output')
@@ -125,10 +125,10 @@ class UNet4(tf.keras.Model):
     encoded2 = self.encoder2(encoded1, **kwargs)
     encoded3 = self.encoder3(encoded2, **kwargs)
     encoded4 = self.encoder4(encoded3, **kwargs)
-    encoded5 = self.encoder4(encoded4, **kwargs)
+    encoded5 = self.encoder5(encoded4, **kwargs)
 
     decoded1 = self.decoder1(encoded5, encoded4, **kwargs)
     decoded2 = self.decoder2(decoded1, encoded3, **kwargs)
     decoded3 = self.decoder3(decoded2, encoded2, **kwargs)
-    decoded4 = self.decoder3(decoded3, encoded1, **kwargs)
+    decoded4 = self.decoder4(decoded3, encoded1, **kwargs)
     return self.output_layer(decoded4, **kwargs)
