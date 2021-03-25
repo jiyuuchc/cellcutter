@@ -78,8 +78,8 @@ class DecoderBlock(tf.keras.layers.Layer):
     return x
 
 class UNet3(tf.keras.Model):
-  def __init__(self, n_channels = 32, **kwargs):
-    super(UNet3, self).__init__(bn = False, **kwargs)
+  def __init__(self, n_channels = 32, bn = False, **kwargs):
+    super(UNet3, self).__init__(**kwargs)
 
     self.encoder1 = EncoderBlock(n_channels, with_maxpool=False, with_batch_normalization = bn, name='encoder1')
     self.encoder2 = EncoderBlock(n_channels * 2, with_batch_normalization = bn, name='encoder2')
@@ -103,8 +103,8 @@ class UNet3(tf.keras.Model):
     return self.output_layer(decoded3, **kwargs)
 
 class UNet4(tf.keras.Model):
-  def __init__(self, n_channels = 32, **kwargs):
-    super(UNet4, self).__init__( bn = False, **kwargs)
+  def __init__(self, n_channels = 32, bn = False, **kwargs):
+    super(UNet4, self).__init__(**kwargs)
 
     self.encoder1 = EncoderBlock(n_channels, with_maxpool=False, with_batch_normalization = bn, name ='encoder1')
     self.encoder2 = EncoderBlock(n_channels * 2, with_batch_normalization = bn, name ='encoder2')
