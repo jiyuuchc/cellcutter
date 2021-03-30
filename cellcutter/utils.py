@@ -34,13 +34,16 @@ def draw_border(data, model, image, batch_size = 256):
   '''
   dataset = data.tf_dataset()
   for coords, patches, *_ in dataset.batch(batch_size):
-    coords = tf.unstack(coords)
-    preds = tf.unstack(tf.squeeze(tf.math.sigmoid(model(patches))))
-    for coord, pred in zip(coords, preds):
+    coords_stack = tf.unstack(coords)
+    preds = tf.squeeze(tf.math.sigmoid(model(patches)))
+    preds_pad = tf.pad(preds, ((0,0),(1,1),(1,1)))
+    preds_stack = tf.unstack(preds_pad)
+    for coord, pred in zip(coords_stack, preds_stack):
       c0,c1 = list(coord)
       patch = (pred.numpy() >= 0.5).astype(np.uint8)
       edge = patch - binary_erosion(patch)
-      d0,d1 = patch.shape
+      edge = edge[1:-1,1:-1]
+      d0,d1 = edge.shape
       image[c0:c0+d0,c1:c1+d1] += edge
   return image
 
