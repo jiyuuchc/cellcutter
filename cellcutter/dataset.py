@@ -31,8 +31,8 @@ class Dataset:
     if label_img == None and gen_fake_label:
       label_img = expand_labels(marker_img, distance = 5)
 
-    if data_img.shape != marker_img.shape or (label_img is not None and data_img.shape != label_img.shape):
-      raise ValueError('Image size not match each other')
+    #if data_img.shape != marker_img.shape or (label_img is not None and data_img.shape != label_img.shape):
+    #  raise ValueError('Image size not match each other')
 
     self.img = self.__normalize_img(data_img)
     self.marker_img = marker_img
@@ -69,27 +69,50 @@ class Dataset:
     indices = np.unique(self.marker_img)[1:]  #ignore 0
 
     self.patch_set = dict()
-    for ind in indices:
-      c0,c1 = np.round(self.__center_of_mass_as_int(self.marker_img == ind))
-      c0 = sorted((0, c0 - self.crop_size // 2, d0 - self.crop_size))[1]
-      c1 = sorted((0, c1 - self.crop_size // 2, d1 - self.crop_size))[1]
+    _,_,nCh = self.img.shape
+    coords = np.zeros((len(indices), 2), dtype = np.int16)
+    patches = np.zeros((len(indices), self.crop_size, self.crop_size, nCh+1))
+    label_patches = np.zeros((len(indices), self.crop_size, self.crop_size), dtype = np.uint16)
 
-      data_patch_1 = self.img[c0:c0+self.crop_size,c1:c1+self.crop_size,:]
-      data_patch_2 = self.marker_img[c0:c0+self.crop_size,c1:c1+self.crop_size] == ind
-      data_patch = np.concatenate((data_patch_1, data_patch_2[...,np.newaxis]),axis = 2)
+    for i,ind in enumerate(indices):
+      c0,c1 = np.round(self.__center_of_mass_as_int(self.marker_img == ind))
+
+      coords[i,:] = [c0,c1]
+
+    coords -= self.crop_size // 2
+    coords = np.clip(coords, 0, (d0 - self.crop_size, d1 - self.crop_size))
+
+      #c0 = sorted((0, c0 - self.crop_size // 2, d0 - self.crop_size))[1]
+      #c1 = sorted((0, c1 - self.crop_size // 2, d1 - self.crop_size))[1]
+
+      #data_patch_1 = self.img[c0:c0+self.crop_size,c1:c1+self.crop_size,:]
+      #data_patch_2 = self.marker_img[c0:c0+self.crop_size,c1:c1+self.crop_size] == ind
+      #data_patch = np.concatenate((data_patch_1, data_patch_2[...,np.newaxis]),axis = 2)
+    for i,ind in enumerate(indices):
+      c0,c1 = coords[i, :]
+      patches[i,:,:,:-1] =  self.img[c0:c0+self.crop_size,c1:c1+self.crop_size,:]
+      patches[i,:,:,-1] =  self.marker_img[c0:c0+self.crop_size,c1:c1+self.crop_size] == ind
 
       if self.label_img is not None:
-        label_patch = (self.label_img[c0:c0+self.crop_size,c1:c1+self.crop_size] == ind).astype(np.uint8)
-        self.patch_set[ind] = ((c0,c1), data_patch, label_patch)
+        label_patches[i,:,:] = (self.label_img[c0:c0+self.crop_size,c1:c1+self.crop_size] == ind).astype(np.uint8)
+#        self.patch_set[ind] = ((c0,c1), data_patch, label_patch)
+#      else:
+#        self.patch_set[ind] = ((c0,c1), data_patch)
+
+      if self.label_img is not None:
+        self.patch_set = (indices, coords, patches, label_patches)
       else:
-        self.patch_set[ind] = ((c0,c1), data_patch)
+        self.patch_set = (indices, coords, patches)
 
   def generator(self):
     '''
-    A generator returning individual patches info: (coord, data, label) or (coord, data) if label_img is None
+    A generator returning individual patches info: (coord, data)
     '''
-    for k in self.patch_set.keys():
-        yield self.patch_set[k]
+    coords = self.patch_set[1]
+    patches = self.patch_set[2]
+
+    for i in range(coords.shape[0]):
+        yield (coords[i,:], patches[i,...])
 
   def tf_dataset(self):
     d0,d1,ch = self.img.shape
@@ -98,10 +121,6 @@ class Dataset:
       output_signature = (
         tf.TensorSpec(shape=(2,), dtype=tf.int32),
         tf.TensorSpec(shape=(self.crop_size,self.crop_size, ch+1), dtype=tf.float32)
-      ) if self.label_img is None else (
-        tf.TensorSpec(shape=(2,), dtype=tf.int32),
-        tf.TensorSpec(shape=(self.crop_size,self.crop_size, ch+1), dtype=tf.float32),
-        tf.TensorSpec(shape=(self.crop_size,self.crop_size), dtype=tf.uint8)
       )
     )
 
@@ -112,9 +131,10 @@ class Dataset:
     if self.label_img is None:
       raise ValueError('Lable Image not set.')
 
-    for k in self.patch_set.keys():
-      c, data, label = self.patch_set[k]
-      yield (data, label)
+    patches = self.patch_set[2]
+    labels = self.patch_set[3]
+    for i in range(patches.shape[0]):
+      yield (patches[i,...], labels[i,...])
 
   def tf_dataset_with_label(self):
     d0,d1,ch = self.img.shape
@@ -138,14 +158,15 @@ class Dataset:
       a0 = rng.integers(d0 - area_size - self.crop_size)
       a1 = rng.integers(d1 - area_size - self.crop_size)
 
-      all_indices = list(filter(
-        lambda k: self.__is_within(self.patch_set[k][0], (a0, a1, area_size, area_size)),
-        self.patch_set.keys()
-      ))
+      coords = self.patch_set[1]
+      patches = self.patch_set[2]
+      all_indices_0 = np.logical_and(coords[:,0] >= a0, coords[:,0] < a0 + area_size)
+      all_indices_1 = np.logical_and(coords[:,1] >= a1, coords[:,1] < a1 + area_size)
+      all_indices = np.logical_and(all_indices_0, all_indices_1)
 
-      coords = [self.patch_set[k1][0] for k1 in all_indices]
-      data = tf.stack([self.patch_set[k2][1] for k2 in all_indices])
-      coords = np.array(coords) - np.array([a0,a1])
+      coords = coords[all_indices, :] - np.array([a0, a1])
+      data = patches[all_indices, ...]
+
       if self.mask is not None:
         submask = self.mask[a0:a0+self.crop_size+area_size, a1:a1+self.crop_size+area_size]
       else:
