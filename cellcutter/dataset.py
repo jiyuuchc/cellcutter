@@ -61,9 +61,6 @@ class Dataset:
     c1 = int(np.sum(img, axis = 0).dot(np.arange(d1)) / s + .5)
     return c0,c1
 
-  def __is_within(self, coord, rect):
-    return coord[0] >= rect[0] and coord[0] < rect[0] + rect[2] and coord[1] >= rect[1] and coord[1] < rect[1] + rect[3]
-
   def create_patches(self):
     d0,d1 = self.marker_img.shape
     indices = np.unique(self.marker_img)[1:]  #ignore 0
@@ -76,18 +73,11 @@ class Dataset:
 
     for i,ind in enumerate(indices):
       c0,c1 = np.round(self.__center_of_mass_as_int(self.marker_img == ind))
-
       coords[i,:] = [c0,c1]
 
     coords -= self.crop_size // 2
     coords = np.clip(coords, 0, (d0 - self.crop_size, d1 - self.crop_size))
 
-      #c0 = sorted((0, c0 - self.crop_size // 2, d0 - self.crop_size))[1]
-      #c1 = sorted((0, c1 - self.crop_size // 2, d1 - self.crop_size))[1]
-
-      #data_patch_1 = self.img[c0:c0+self.crop_size,c1:c1+self.crop_size,:]
-      #data_patch_2 = self.marker_img[c0:c0+self.crop_size,c1:c1+self.crop_size] == ind
-      #data_patch = np.concatenate((data_patch_1, data_patch_2[...,np.newaxis]),axis = 2)
     for i,ind in enumerate(indices):
       c0,c1 = coords[i, :]
       patches[i,:,:,:-1] =  self.img[c0:c0+self.crop_size,c1:c1+self.crop_size,:]
@@ -95,56 +85,22 @@ class Dataset:
 
       if self.label_img is not None:
         label_patches[i,:,:] = (self.label_img[c0:c0+self.crop_size,c1:c1+self.crop_size] == ind).astype(np.uint8)
-#        self.patch_set[ind] = ((c0,c1), data_patch, label_patch)
-#      else:
-#        self.patch_set[ind] = ((c0,c1), data_patch)
 
-      if self.label_img is not None:
-        self.patch_set = (indices, coords, patches, label_patches)
-      else:
-        self.patch_set = (indices, coords, patches)
-
-  def generator(self):
-    '''
-    A generator returning individual patches info: (coord, data)
-    '''
-    coords = self.patch_set[1]
-    patches = self.patch_set[2]
-
-    for i in range(coords.shape[0]):
-        yield (coords[i,:], patches[i,...])
+    self.__coordinates = coords
+    self.__patches = __patches
+    self.__indices = __indices
+    if self.label_img is not None:
+      self.__patch_labels = label_patches
 
   def tf_dataset(self):
-    d0,d1,ch = self.img.shape
-    return tf.data.Dataset.from_generator(
-      self.generator,
-      output_signature = (
-        tf.TensorSpec(shape=(2,), dtype=tf.int32),
-        tf.TensorSpec(shape=(self.crop_size,self.crop_size, ch+1), dtype=tf.float32)
-      )
-    )
-
-  def generator_with_label(self):
-    '''
-    A generator returning individual patches pairs with label: (data, label)
-    '''
-    if self.label_img is None:
-      raise ValueError('Lable Image not set.')
-
-    patches = self.patch_set[2]
-    labels = self.patch_set[3]
-    for i in range(patches.shape[0]):
-      yield (patches[i,...], labels[i,...])
+    c = tf.data.Dataset.from_tensor_slices(self.__coordinates)
+    imgs = tf.data.Dataset.from_tensor_slices(self.__patches)
+    return tf.data.Dataset.zip((c, img))
 
   def tf_dataset_with_label(self):
-    d0,d1,ch = self.img.shape
-    return tf.data.Dataset.from_generator(
-      self.generator_with_label,
-      output_signature=(
-        tf.TensorSpec(shape=(self.crop_size,self.crop_size,ch+1), dtype=tf.float32),
-        tf.TensorSpec(shape=(self.crop_size,self.crop_size), dtype=tf.uint8)
-      )
-    )
+    imgs = tf.data.Dataset.from_tensor_slices(self.__patches)
+    labels = tf.data.Dataset.from_tensor_slices(self.__patch_labels)
+    return tf.data.Dataset.zip((img, labels))
 
   def generator_within_area(self, rng = None, area_size = 640):
     '''
@@ -158,11 +114,11 @@ class Dataset:
       a0 = rng.integers(d0 - area_size - self.crop_size)
       a1 = rng.integers(d1 - area_size - self.crop_size)
 
-      coords = self.patch_set[1]
-      patches = self.patch_set[2]
-      all_indices_0 = np.logical_and(coords[:,0] >= a0, coords[:,0] < a0 + area_size)
-      all_indices_1 = np.logical_and(coords[:,1] >= a1, coords[:,1] < a1 + area_size)
-      all_indices = np.logical_and(all_indices_0, all_indices_1)
+      coords = self.__coordinates
+      patches = self.__patches
+      rows = np.logical_and(coords[:,0] >= a0, coords[:,0] < a0 + area_size)
+      cols = np.logical_and(coords[:,1] >= a1, coords[:,1] < a1 + area_size)
+      all_indices = np.logical_and(rows, cols)
 
       coords = coords[all_indices, :] - np.array([a0, a1])
       data = patches[all_indices, ...]
