@@ -4,10 +4,12 @@ from numpy.random import default_rng
 from .loss import cutter_loss
 
 def augment(img, t):
-  if t == 1 or t == 3:
+  if t & 1:
     img = tf.image.flip_left_right(img)
-  if t == 2 or t == 3:
+  if t & 2:
     img = tf.image.flip_up_down(img)
+  if t & 4:
+    img = tf.image.transpose(img)
   return img
 
 def train_with_label(data, model, epochs = 1, batch_size = 256):
