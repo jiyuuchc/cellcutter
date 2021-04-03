@@ -26,7 +26,7 @@ def train_with_label(data, model, epochs = 1, batch_size = 256):
 
   model.summary()
 
-def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size = 640, rng = None, batch_size = 32, callback = None):
+def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size = 640, rng = None, batch_size = 32, callback = None, lam=1.0):
   if rng is None:
     rng = default_rng()
   g = data.generator_within_area(rng, area_size=area_size)
@@ -43,7 +43,7 @@ def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size
       d = augment(d,t)
       with tf.GradientTape() as tape:
         y = augment(model(d, training = True), t)
-        loss = cutter_loss(tf.squeeze(y), c, mask = mask, area_size=area_size)
+        loss = cutter_loss(tf.squeeze(y), c, mask = mask, area_shape=area_size, lam = lam)
       grads = tape.gradient(loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads,model.trainable_variables))
       loss_t += loss
