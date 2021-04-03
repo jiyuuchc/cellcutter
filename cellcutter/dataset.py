@@ -1,35 +1,14 @@
 import numpy as np
 from numpy.random import default_rng
 import tensorflow as tf
-try:
-  from skimage.segmentation import expand_labels
-except ImportError:
-  '''
-  The expand_labels() is not implemented in earlier versions of skimage
-  So it is directy copied here if import fails
-  '''
-  from scipy.ndimage import distance_transform_edt
-  def expand_labels(label_image, distance=1):
-      distances, nearest_label_coords = distance_transform_edt(
-          label_image == 0, return_indices=True
-      )
-      labels_out = np.zeros_like(label_image)
-      dilate_mask = distances <= distance
-      masked_nearest_label_coords = [
-          dimension_indices[dilate_mask]
-          for dimension_indices in nearest_label_coords
-      ]
-      nearest_labels = label_image[tuple(masked_nearest_label_coords)]
-      labels_out[dilate_mask] = nearest_labels
-      return labels_out
 
 module_rng = default_rng()
 
 class Dataset:
 
-  def __init__(self, data_img, marker_img, mask_img = None, label_img = None, crop_size = 64, gen_fake_label = True):
-    if label_img == None and gen_fake_label:
-      label_img = expand_labels(marker_img, distance = 5)
+  def __init__(self, data_img, marker_img, mask_img = None, label_img = None, crop_size = 64):
+    #if label_img == None and gen_fake_label:
+    #  label_img = expand_labels(marker_img, distance = 5)
 
     #if data_img.shape != marker_img.shape or (label_img is not None and data_img.shape != label_img.shape):
     #  raise ValueError('Image size not match each other')
