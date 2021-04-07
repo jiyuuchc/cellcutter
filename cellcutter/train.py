@@ -1,7 +1,32 @@
 import tensorflow as tf
 import numpy as np
+
 from numpy.random import default_rng
+from numpy.lib.stride_tricks import as_strided
+
 from .loss import cutter_loss
+
+try:
+  from skimage.segmentation import expand_labels
+except ImportError:
+  '''
+  The expand_labels() is not implemented in earlier versions of skimage
+  So it is directy copied here if import fails
+  '''
+  from scipy.ndimage import distance_transform_edt
+  def expand_labels(label_image, distance=1):
+      distances, nearest_label_coords = distance_transform_edt(
+          label_image == 0, return_indices=True
+      )
+      labels_out = np.zeros_like(label_image)
+      dilate_mask = distances <= distance
+      masked_nearest_label_coords = [
+          dimension_indices[dilate_mask]
+          for dimension_indices in nearest_label_coords
+      ]
+      nearest_labels = label_image[tuple(masked_nearest_label_coords)]
+      labels_out[dilate_mask] = nearest_labels
+      return labels_out
 
 def augment(img, t):
   if t & 1:
@@ -12,13 +37,33 @@ def augment(img, t):
     img = tf.image.transpose(img)
   return img
 
-def train_with_label(data, model, epochs = 1, batch_size = 256):
+def _gen_fake_label(data, expand_size = 5):
+  marker = data.marker_img
+  fake_label = expand_labels(marker, expand_size)
+
+  coords_t = tuple(data.coordinates.transpose())
+  indices = data.indices
+  dim = len(coords_t)
+
+  sub_shape = np.broadcast_to(data.crop_size, (dim,))
+  view_shape = tuple(marker.shape - sub_shape + 1) + tuple(sub_shape)
+  fake_label = as_strided(fake_label, view_shape, fake_label.strides * 2)
+  labels = fake_label[coords_t].reshape(len(indices), -1) == indices[:, np.newaxis]
+  labels = labels.reshape(len(indices), *sub_shape)
+
+  return labels
+
+def train_with_fake_label(data, model, epochs = 5, batch_size = 256):
   model.compile(
       optimizer='Adam',
       loss=tf.losses.BinaryCrossentropy(from_logits=True),
       metrics=['accuracy'],
       )
-  dataset = data.tf_dataset_with_label()
+
+  patches = tf.data.Dataset.from_tensor_slices(data.patches)
+  patch_labels =  tf.data.Dataset.from_tensor_slices(_gen_fake_label(data))
+
+  dataset = tf.data.Dataset.zip((patches, patch_labels))
 
   for epoch in range(epochs):
     print('Epoch : #%i'%epoch)

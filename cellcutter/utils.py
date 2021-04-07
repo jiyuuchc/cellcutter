@@ -6,27 +6,6 @@ from skimage import img_as_ubyte
 from skimage.filters.rank import entropy
 import sklearn.mixture
 import maxflow
-try:
-  from skimage.segmentation import expand_labels
-except ImportError:
-  '''
-  The expand_labels() is not implemented in earlier versions of skimage
-  So it is directy copied here if import fails
-  '''
-  from scipy.ndimage import distance_transform_edt
-  def expand_labels(label_image, distance=1):
-      distances, nearest_label_coords = distance_transform_edt(
-          label_image == 0, return_indices=True
-      )
-      labels_out = np.zeros_like(label_image)
-      dilate_mask = distances <= distance
-      masked_nearest_label_coords = [
-          dimension_indices[dilate_mask]
-          for dimension_indices in nearest_label_coords
-      ]
-      nearest_labels = label_image[tuple(masked_nearest_label_coords)]
-      labels_out[dilate_mask] = nearest_labels
-      return labels_out
 
 def draw_label(data, model, image, batch_size = 256):
   '''
@@ -35,7 +14,11 @@ def draw_label(data, model, image, batch_size = 256):
   image: a 2D array to be drawn on
   '''
   label = 1
-  dataset = data.tf_dataset()
+
+  coords = tf.data.Dataset.from_tensor_slices(data.coordinates)
+  imgs = tf.data.Dataset.from_tensor_slices(data.patches)
+  dataset = tf.data.Dataset.zip((coords, imgs))
+
   for coords, patches, *_ in dataset.batch(batch_size):
     coords = tf.unstack(coords)
     preds = tf.unstack(tf.squeeze(tf.math.sigmoid(model(patches))))
@@ -53,7 +36,10 @@ def draw_border(data, model, image, batch_size = 256):
   model: a tf NN model
   image: a 2D array to be drawn on
   '''
-  dataset = data.tf_dataset()
+  coords = tf.data.Dataset.from_tensor_slices(data.coordinates)
+  imgs = tf.data.Dataset.from_tensor_slices(data.patches)
+  dataset = tf.data.Dataset.zip((coords, imgs))
+
   for coords, patches, *_ in dataset.batch(batch_size):
     coords_stack = tf.unstack(coords)
     preds = tf.squeeze(tf.math.sigmoid(model(patches)))
@@ -68,7 +54,7 @@ def draw_border(data, model, image, batch_size = 256):
       image[c0:c0+d0,c1:c1+d1] += edge
   return image
 
-def gen_mask_from_data(data_img, entropy_disk_size = 16, graph_cut_weight = 5):
+def gen_mask_from_data(data_img, entropy_disk_size = 8, graph_cut_weight = 5):
   ''' generate a mask for the cell area from the data Image
   Step1: perform local entropy calcualation. The area with cells are expected to have higer entropy_disk_size
   Step2: Cluster entropy values using a 2-state (Cell/Background) Gaussian Mixture model and compute probabilities of states for each pixel.
@@ -92,8 +78,3 @@ def gen_mask_from_data(data_img, entropy_disk_size = 16, graph_cut_weight = 5):
   sgm_img = g.get_grid_segments(nodes)
 
   return sgm_img, entr_img
-
-def gen_fake_labels(marker_label, dist = 5):
-  '''generate fake segmentation labels by simply expand the marker labels
-  '''
-  return expand_labels(marker_label, distance = dist)
