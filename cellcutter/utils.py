@@ -5,7 +5,11 @@ from skimage.morphology import disk
 from skimage import img_as_ubyte
 from skimage.filters.rank import entropy
 import sklearn.mixture
-import maxflow
+from warnings import warn
+try:
+  import maxflow
+except ModuleNotFoundError:
+  warn("PyMaxFlow not found. Some functions may not work.")
 
 def draw_label(data, model, image, batch_size = 256):
   '''
