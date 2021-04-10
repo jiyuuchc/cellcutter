@@ -1,6 +1,8 @@
 import tensorflow as tf
 import numpy as np
 
+_BETA = -20
+
 def cutter_loss(y, coords, area_shape, mask = None, lam = 1.0):
   '''
   Standard loss function. y is a tensor. The rest are numpy arrays.
@@ -19,7 +21,7 @@ def cutter_loss(y, coords, area_shape, mask = None, lam = 1.0):
 
   log_yi_sum = tf.scatter_nd(ind, log_yi, area_shape + patch_shape)
   if mask is not None:
-    log_yi_sum += mask
+    log_yi_sum += mask * _BETA
 
   log_yi -= tf.gather_nd(log_yi_sum, ind)
 
