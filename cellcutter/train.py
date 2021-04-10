@@ -62,7 +62,7 @@ def _gen_fake_label(data, expand_size = 5):
 
   return labels
 
-def train_with_fake_label(data, model, epochs = 5, batch_size = 256):
+def train_with_fake_label(data, model, epochs = 5, batch_size = 256, callback = None):
   try:
     iter(data)
   except TypeError:
@@ -84,10 +84,12 @@ def train_with_fake_label(data, model, epochs = 5, batch_size = 256):
   for epoch in range(epochs):
     print('Epoch : #%i'%epoch)
     model.fit(dataset.batch(batch_size))
+    if callback is not None:
+      callback(epoch)
 
   model.summary()
 
-def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size = 640, rng = None, batch_size = 32, callback = None, lam=1.0):
+def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size = 640, rng = None, steps_per_epoch = 32, callback = None, lam=1.0):
   if rng is None:
     rng = default_rng()
 
@@ -105,7 +107,7 @@ def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size
 
   for epoch in range(n_epochs):
     loss_t = 0.0
-    for _ in range(batch_size):
+    for _ in range(steps_per_epoch):
       d, c, mask = next(g[rng.integers(len(g))])
       t = int(rng.integers(4))
       d = augment(d,t)
@@ -116,8 +118,8 @@ def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size
       optimizer.apply_gradients(zip(grads,model.trainable_variables))
       loss_t += loss
 
-    loss_t /= batch_size
+    loss_t /= steps_per_epoch
     print('Epoch: %i -- loss: %f'%(epoch+1,loss_t))
 
     if callback is not None:
-      callback(loss_t)
+      callback(epoch, {'loss':loss_t})
