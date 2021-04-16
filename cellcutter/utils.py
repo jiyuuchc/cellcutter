@@ -6,6 +6,7 @@ from skimage import img_as_ubyte
 from skimage.filters.rank import entropy
 import sklearn.mixture
 from warnings import warn
+
 try:
   import maxflow
 except ModuleNotFoundError:
