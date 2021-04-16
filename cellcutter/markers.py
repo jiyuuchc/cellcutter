@@ -5,7 +5,7 @@ from skimage.measure import regionprops
 from sklearn.preprocessing import StandardScaler
 from skimage.filters import gaussian
 
-from .train import expand_labels
+from .extra import expand_labels
 
 def label_with_blob_detection(img, max_sigma = 10, min_sigma = 3, threshold = .01):
   ''' Generate maker label from nucleus imag using blob detection
