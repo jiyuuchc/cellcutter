@@ -1,3 +1,5 @@
+import numpy as np
+
 try:
   from skimage.segmentation import expand_labels
 except ImportError:

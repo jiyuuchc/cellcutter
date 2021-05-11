@@ -41,7 +41,7 @@ def _gen_fake_label(data, expand_size = 5):
 
   return labels
 
-def train_with_fake_label(data, model, epochs = 5, batch_size = 256, callback = None):
+def train_with_fake_label(data, model, epochs = 2, batch_size = 256, callback = None):
   try:
     iter(data)
   except TypeError:
@@ -68,7 +68,7 @@ def train_with_fake_label(data, model, epochs = 5, batch_size = 256, callback = 
 
   model.summary()
 
-def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size = 640, rng = None, steps_per_epoch = 32, callback = None, lam=1.0):
+def train_self_supervised(data, model, n_epochs = 1, area_size = 640, rng = None, steps_per_epoch = 32, lam = 1.0, optimizer = None, callback = None):
   if rng is None:
     rng = default_rng()
 
@@ -77,10 +77,10 @@ def train_self_supervised(data, model, optimizer = None, n_epochs = 1, area_size
   except TypeError:
     data = (data,)
 
-  g = [dd.generator_within_area(rng, area_size=area_size) for dd in data]
+  g = [dd.generator_within_area(rng=rng, area_size=area_size) for dd in data]
 
   if optimizer is None:
-    if not hasattr(model,'optimizer'):
+    if not hasattr(model,'optimizer') or model.optimizer is None:
       model.optimizer = tf.keras.optimizers.Adam()
     optimizer = model.optimizer
 
