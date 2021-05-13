@@ -7,32 +7,39 @@ from skimage.filters.rank import entropy
 import sklearn.mixture
 from warnings import warn
 
+from numpy.lib.stride_tricks import as_strided
+
 try:
   import maxflow
 except ModuleNotFoundError:
   warn("PyMaxFlow not found. Some functions may not work.")
 
-def draw_label(data, model, image, batch_size = 256):
+def draw_label(data, model, image):
   '''
   data: cellcutter.dataset object
   model: a tf NN model
   image: a 2D array to be drawn on
   '''
+  coords = data.coordinates
+  preds = tf.sigmoid(model(data.patches)).numpy().squeeze()
+
+  d0,d1 = preds.shape[-2:]
+  max_prob = np.zeros(image.shape, dtype=np.float32)
+
+  # find the max prob at each pixel
+  # we have to go through patchs sequentially to have a predictable execution order
+  for coord, pred in zip(coords, preds):
+    c0,c1 = list(coord)
+    max_prob[c0:c0+d0,c1:c1+d1] = np.maximum(max_prob[c0:c0+d0,c1:c1+d1], pred)
+
   label = 1
+  # now remove any pred output that is not the max
+  for coord, pred in zip(coords, preds):
+    c0,c1 = list(coord)
+    pred[pred < max_prob[c0:c0+d0,c1:c1+d1]] = 0
+    image[c0:c0+d0, c1:c1+d1] = np.maximum(image[c0:c0+d0, c1:c1+d1], (pred > 0.5) * label)
+    label += 1
 
-  coords = tf.data.Dataset.from_tensor_slices(data.coordinates)
-  imgs = tf.data.Dataset.from_tensor_slices(data.patches)
-  dataset = tf.data.Dataset.zip((coords, imgs))
-
-  for coords, patches, *_ in dataset.batch(batch_size):
-    coords = tf.unstack(coords)
-    preds = tf.unstack(tf.squeeze(tf.math.sigmoid(model(patches))))
-    for coord, pred in zip(coords, preds):
-      c0,c1 = list(coord)
-      patch = (pred.numpy() >= 0.5)* label
-      d0,d1 = patch.shape
-      image[c0:c0+d0,c1:c1+d1] = np.maximum(image[c0:c0+d0,c1:c1+d1], patch)
-      label += 1
   return image
 
 def draw_border(data, model, image, batch_size = 256):
@@ -41,22 +48,20 @@ def draw_border(data, model, image, batch_size = 256):
   model: a tf NN model
   image: a 2D array to be drawn on
   '''
-  coords = tf.data.Dataset.from_tensor_slices(data.coordinates)
-  imgs = tf.data.Dataset.from_tensor_slices(data.patches)
-  dataset = tf.data.Dataset.zip((coords, imgs))
+  coords = data.coordinates
+  preds = tf.sigmoid(model(data.patches)).numpy().squeeze()
+  d0,d1 = preds.shape[-2:]
 
-  for coords, patches, *_ in dataset.batch(batch_size):
-    coords_stack = tf.unstack(coords)
-    preds = tf.squeeze(tf.math.sigmoid(model(patches)))
-    preds_pad = tf.pad(preds, ((0,0),(1,1),(1,1)))
-    preds_stack = tf.unstack(preds_pad)
-    for coord, pred in zip(coords_stack, preds_stack):
-      c0,c1 = list(coord)
-      patch = (pred.numpy() >= 0.5).astype(np.uint8)
-      edge = patch - binary_erosion(patch)
-      edge = edge[1:-1,1:-1]
-      d0,d1 = edge.shape
-      image[c0:c0+d0,c1:c1+d1] += edge
+  # add a border so that erosion operation always work
+  preds = np.pad(preds, ((0,0),(1,1),(1,1)))
+
+  for coord, pred in zip(coords, preds):
+    c0,c1 = list(coord)
+    patch = (pred > 0.5).astype(np.uint8)
+    edge = patch - binary_erosion(patch)
+    edge = edge[1:-1,1:-1] # remove extra border added above
+    image[c0:c0+d0,c1:c1+d1] += edge
+
   return image
 
 def gen_mask_from_data(data_img, entropy_disk_size = 8, graph_cut_weight = 5):
