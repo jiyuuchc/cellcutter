@@ -60,12 +60,12 @@ class Dataset:
 
     # Normalize data_img to (0,1)
     nCh = data_img.shape[-1]
-    data_img -= np.min(data_img.reshape(-1, nCh), axis = 0)
-    data_img /= np.max(data_img.reshape(-1, nCh), axis = 0)
+    data_img -= np.mean(data_img.reshape(-1, nCh), axis = 0)
+    data_img /= np.std(data_img.reshape(-1, nCh), axis = 0)
 
     if mask_img is not None:
-      mask = (np.array(mask_img) > 0).astype(np.float32)
-      if mask.shape != img_shape:
+      mask_img = (np.array(mask_img) > 0).astype(np.float32)
+      if mask_img.shape != img_shape:
         raise ValueError('Image and mask has different shape.')
 
     self._crop_size = crop_size
@@ -73,7 +73,7 @@ class Dataset:
     self._coordinates = coords
     self._indices = indices
     self._img = data_img
-    self._mask = mask
+    self._mask = mask_img
 
     self._pos_embedding = self._get_embedding(crop_size, sigma)
 
