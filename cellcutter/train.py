@@ -7,6 +7,13 @@ from numpy.lib.stride_tricks import as_strided
 from .loss import cutter_loss
 from .extra import expand_labels
 
+def _iou(label, pred):
+  pred = pred > 0.5
+  label = label > 0
+  intersect = np.sum(pred * label, axis=(1,2))
+  union = np.sum(pred, axis=(1,2)) + np.sum(label, axis=(1,2)) - intersect
+  return intersect / union
+
 def augment(img, t):
   if t & 1:
     img = tf.image.flip_left_right(img)
@@ -68,7 +75,7 @@ def train_with_fake_label(data, model, epochs = 2, batch_size = 256, callback = 
 
   model.summary()
 
-def train_self_supervised(data, model, n_epochs = 1, area_size = 640, rng = None, steps_per_epoch = 32, lam = 1.0, optimizer = None, callback = None):
+def train_self_supervised(data, model, n_epochs = 1, area_size = 640, rng = None, steps_per_epoch = 32, lam = 1.0, optimizer = None, val_data=None, callback = None):
   if rng is None:
     rng = default_rng()
 
@@ -98,7 +105,15 @@ def train_self_supervised(data, model, n_epochs = 1, area_size = 640, rng = None
       loss_t += loss
 
     loss_t /= steps_per_epoch
-    print('Epoch: %i -- loss: %f'%(epoch+1,loss_t))
+    n_steps = steps_per_epoch * (epoch+1)
+
+    if val_data is not None:
+      test_patch, test_label = val_data
+      pred = tf.sigmoid(model(test_patch)).numpy().squeeze()
+      ious = _iou(test_label, pred)
+      print('Epoch: %i (%i steps) -- loss: %f -- mIOU: %f'%(epoch+1, n_steps, loss_t, ious.mean() ))
+    else:
+      print('Epoch: %i (%i steps) -- loss: %f'%(epoch+1, n_steps, loss_t))
 
     if callback is not None:
       callback(epoch, {'loss':loss_t})
