@@ -10,9 +10,9 @@ from .extra import expand_labels
 def _iou(label, pred):
   pred = pred > 0.5
   label = label > 0
-  intersect = np.sum(pred * label, axis=(1,2))
-  union = np.sum(pred, axis=(1,2)) + np.sum(label, axis=(1,2)) - intersect
-  return intersect / union
+  m = tf.keras.metrics.MeanIoU(2)
+  m.update_state(label, pred)
+  return m.result().numpy()
 
 def augment(img, t):
   if t & 1:
