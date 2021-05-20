@@ -24,3 +24,14 @@ def label_with_blob_detection(img, max_sigma = 10, min_sigma = 3, threshold = .0
 
   label = expand_labels(label, max_sigma - 2)
   return label
+
+def blob_detection(img, max_sigma = 10, min_sigma = 3, threshold = 0.01):
+  ''' Located blobs
+  '''
+  img = np.array(img, dtype = np.double)
+  img = StandardScaler().fit_transform(img.reshape(-1,1)).reshape(img.shape)
+  blobs = blob_doh(img, max_sigma = max_sigma, min_sigma = min_sigma, threshold = threshold)
+
+  xs, ys = np.round(blobs[:,:2]).astype(int).transpose()
+  blobs_p = blobs[np.greater(gaussian(img)[(xs, ys)],0), :]
+  return np.round(blobs_p[:,:2]).astype(int)
