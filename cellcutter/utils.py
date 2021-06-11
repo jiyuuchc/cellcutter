@@ -64,27 +64,48 @@ def draw_border(data, model, image, batch_size = 256):
 
   return image
 
-def gen_mask_from_data(data_img, entropy_disk_size = 8, graph_cut_weight = 5):
-  ''' generate a mask for the cell area from the data Image
-  Step1: perform local entropy calcualation. The area with cells are expected to have higer entropy_disk_size
-  Step2: Cluster entropy values using a 2-state (Cell/Background) Gaussian Mixture model and compute probabilities of states for each pixel.
-  Step3: Perform a maxflow graph cut to separate cell and background region
-
-  returns: (mask_image, entropy_image)
+def img2porb(img):
   '''
-  img_u = img_as_ubyte((data_img - data_img.min()) / data_img.ptp())
-  entr_img = entropy(img_u, disk(entropy_disk_size))
-  entr_img = (entr_img - entr_img.min()) / entr_img.ptp()
-
+  Cluster image values using a 2-state (Cell/Background) Gaussian Mixture model.
+  Return probabilities of states for each pixel
+  '''
   gmm_model = sklearn.mixture.GaussianMixture(2)
-  gmm_model.fit(entr_img.flatten()[...,np.newaxis])
+  gmm_model.fit(img.flatten()[...,np.newaxis])
   prob = gmm_model.predict_proba(entr_img.flatten()[...,np.newaxis])[:,0].reshape(entr_img.shape)
+  return prob
+
+def graph_cut(data_img, prior = 0.5, max_weight = 5, sigma = 0.1):
+  ''' A generic graph cut algorithm to separate foreground from background.
+  data_img: either 2D or 3D numpy array
+  prior: Prior probability of foreground pixels, float (0,1)
+  max_weight: Max cut penalty. A smaller value resulted in more fragmented cutting
+  sigma: Affects how much the intensity gradient lowers the cut penalty. A large value means low effect and thus a more constant cut penalty.
+
+  returns: Graph cut image
+  '''
+  if prior <=0 or prior >= 1.0:
+    raise ValueError("prior must be between (0,1)")
+
+  img = (data_img - data_img.min()) / data_img.ptp()
+
+  f_weights = -np.log(np.maximum(img, np.finfo(float).eps)) - np.log(prior)
+  b_weights = -np.log(1.0-prior) - np.log(np.maximum(1.0 - img, np.finfo(float).eps))
 
   g = maxflow.GraphFloat()
-  nodes = g.add_grid_nodes(entr_img.shape)
-  g.add_grid_edges(nodes, graph_cut_weight)
-  g.add_grid_tedges(nodes, np.log(1-prob), np.log(prob))
+  nodes = g.add_grid_nodes(img.shape)
+
+  g.add_grid_tedges(nodes, f_weights, b_weights)
+
+  connectivities = ((-1,1), (0,1), (1,1), (1,0)) # 2D
+  for c in connectivities:
+    struct = np.zeros((3,3))
+    struct[1+c[0], 1+c[1]] = 1
+    weights = img - np.roll(img, -np.array(c), axis=(0,1))
+    weights = np.exp(-weights*weights/2/sigma/sigma) * max_weight
+
+    g.add_grid_edges(nodes, weights, struct)
+
   g.maxflow()
   sgm_img = g.get_grid_segments(nodes)
 
-  return sgm_img, entr_img
+  return sgm_img
