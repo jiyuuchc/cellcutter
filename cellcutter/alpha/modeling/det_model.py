@@ -1,15 +1,14 @@
 ''' UNet based cell-detection model '''
 
 import tensorflow as tf
-from layers import *
-from unet import *
+from .layers import *
+from .unet import *
 
 class DetModel(tf.keras.Model):
-    def __init__(self, n_cls = 3, **kwargs):
-        super(DetModel,self).__init__(**kwargs)
+    def __init__(self, n_cls = 3):
+        super(DetModel,self).__init__()
 
         self._n_classes = n_cls
-
         self._metrics = self._build_metrics()
 
         self._encoder = UNetEncoder()
@@ -32,6 +31,11 @@ class DetModel(tf.keras.Model):
         classification_block.append(tf.keras.layers.Dense(128, activation='relu'))
         classification_block.append(tf.keras.layers.Dense(self._n_classes, activation='softmax'))
         self._classification_block = classification_block
+
+    def get_config(self):
+        return {
+            'n_cls': self._n_classes,
+        }
 
     def call(self, inputs, training = None, **kwargs):
         image, labels = inputs

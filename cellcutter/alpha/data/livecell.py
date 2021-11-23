@@ -1,8 +1,10 @@
 ''' Data generator for Live-cell dataset from Sartorious'''
 
+import os
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+import imageio
 from scipy.ndimage import distance_transform_edt
 
 def annotation_to_indices(annotation, dense_shape):
@@ -85,17 +87,18 @@ def generator(df, img_path):
         yield img[:,:,None], labels
 
 def get_output_signature(h=520, w=704):
-    tf.TensorSpec(shape=(h, w, 1), dtype=tf.float32),
-    {
-        'source_id': tf.TensorSpec(shape=(), dtype=tf.string),
-        'height': tf.TensorSpec(shape=(), dtype=tf.int32),
-        'width': tf.TensorSpec(shape=(), dtype=tf.int32),
-        'class': tf.TensorSpec(shape=(), dtype=tf.int32),
-        'dist_map': tf.TensorSpec(shape=(h,w,2), dtype=tf.float32),
-        'weights': tf.TensorSpec(shape=(h,w,1), dtype=tf.float32),
-        'mask_indices': tf.TensorSpec(shape=(None,3), dtype=tf.int32),
-    }
-)
+    return (
+      tf.TensorSpec(shape=(h, w, 1), dtype=tf.float32),
+      {
+          'source_id': tf.TensorSpec(shape=(), dtype=tf.string),
+          'height': tf.TensorSpec(shape=(), dtype=tf.int32),
+          'width': tf.TensorSpec(shape=(), dtype=tf.int32),
+          'class': tf.TensorSpec(shape=(), dtype=tf.int32),
+          'dist_map': tf.TensorSpec(shape=(h,w,2), dtype=tf.float32),
+          'weights': tf.TensorSpec(shape=(h,w,1), dtype=tf.float32),
+          'mask_indices': tf.TensorSpec(shape=(None,3), dtype=tf.int32),
+      },
+    )
 
 def as_dataset(dataframe, img_dir, img_h = 520, img_w = 704):
     return tf.data.Dataset.from_generator(

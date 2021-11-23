@@ -1,5 +1,5 @@
 import tensorflow as tf
-from layers import *
+from .layers import *
 
 class UNetEncoder(tf.keras.layers.Layer):
     def __init__(self, n_filters=32, is_resnet=False, **kwargs):
@@ -9,13 +9,15 @@ class UNetEncoder(tf.keras.layers.Layer):
             'is_resnet': is_resnet,
         }
 
-    def get_config():
-        return self._config_dict
+    def get_config(self):
+        base_config = super(UNetEncoder, self).get_config()
+        return dict(list(base_config.items()) + list(self._config_dict.items()))
 
     def build(self, input_shape):
         n_filters = self._config_dict['n_filters']
         is_resnet = self._config_dict['is_resnet']
         conv_kwargs = {
+            'padding': 'same',
             'kernel_initializer': 'he_normal',
             'activation': 'relu'
         }
@@ -49,8 +51,9 @@ class UNetDecoder(tf.keras.layers.Layer):
             'is_resnet': is_resnet,
         }
 
-    def get_config():
-        return self._config_dict
+    def get_config(self):
+        base_config = super(UNetDecoder, self).get_config()
+        return dict(list(base_config.items()) + list(self._config_dict.items()))
 
     def build(self, input_shape):
         n_filters = self._config_dict['n_filters']
