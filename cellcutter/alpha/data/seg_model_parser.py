@@ -34,8 +34,7 @@ def crop_pred(preds, bbox, crop_size=64):
   tf.TensorSpec(shape=(), dtype=tf.int32),
 ))
 def crop_img(img, bbox, crop_size=64):
-    if tf.rank(img) == 3:
-        img = img[None,...]
+    img = img[None,...]
     return tf.image.crop_and_resize(
         img,
         bbox,
