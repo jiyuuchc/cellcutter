@@ -58,6 +58,16 @@ def _bbox_of_masks(mi_ragged):
         all_results.append(bbox)
     return tf.ragged.constant(all_results, ragged_rank=1)
 
+def _bbox_of_masks_one_image(mi_one_img):
+    mi = mi_one_img.numpy()
+    mi_split = np.split(mi[:,1:3], np.where(np.diff(mi[:,0]))[0]+1)
+    bbox = [ind.min(axis=0).tolist() + ind.max(axis=0).tolist() for ind in mi_split]
+    return tf.constant(bbox)
+
 @tf.function(input_signature=[tf.RaggedTensorSpec((None,None,3), tf.int32, 1)])
 def bbox_of_masks(mi):
-    return tf.py_function(_bbox_of_masks, [mi], tf.RaggedTensorSpec((None,None,None),tf.int32, 1))
+    return tf.map_fn(
+        lambda x : tf.py_function(_bbox_of_masks_one_image, [x], tf.int32),
+        mi,
+        fn_output_signature=tf.RaggedTensorSpec((None, 4), tf.int32, 0)
+    )
