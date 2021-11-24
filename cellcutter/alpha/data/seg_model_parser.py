@@ -5,20 +5,16 @@ from skimage.measure import regionprops
 from ..ops.common import *
 from ..ops.clustering import *
 from ..ops.box_matcher import *
+from ..ops.boxes import *
 
 @tf.function(input_signature=(
   tf.TensorSpec(shape=(None,None), dtype=tf.int32),
   tf.TensorSpec(shape=(None,4), dtype=tf.float32),
   tf.TensorSpec(shape=(), dtype=tf.int32),
 ))
-def crop_pred(preds, bbox, crop_size=64):
-    n_proposals = tf.reduce_max(preds) + 1
-    pred_imgs = tf.map_fn(
-        lambda k: tf.cast(preds == k, tf.int32),
-        tf.range(n_proposals),
-        fn_output_signature = tf.TensorSpec(shape=(None,None), dtype=tf.int32),
-    )
-
+def crop_proposals(proposals, bbox, crop_size=64):
+    n_proposals = tf.reduce_max(proposals) + 1
+    pred_imgs = tf.one_hot(proposals, n_proposals, axis=0)
     pred_imgs = tf.expand_dims(pred_imgs, -1)
 
     return tf.image.crop_and_resize(
@@ -105,7 +101,7 @@ def parser(inputs, det_model, min_iou = 0.1):
 
     bbox = tf.numpy_function(bbox_of_preds, [preds], tf.int32)
     bbox = adjust_bbox(bbox)
-    pred_crops = crop_pred(preds, bbox)
+    pred_crops = crop_proposals(preds, bbox)
     img_crops = crop_img(img, bbox)
     mask_crops = crop_masks(labels['mask_indices'], bbox, matched)
     ind = ind * (labels['class'] + 1)
@@ -116,6 +112,47 @@ def parser(inputs, det_model, min_iou = 0.1):
           'gt_cell_type': ind,
           'gt_mask': mask_crops,
           'bbox': bbox,
+          }
+
+def fast_parser(inputs, det_model, min_iou = 0.1):
+    def process_one_img(k):
+        m_boxes, matched, m_ious, ious = box_matching(
+            tf.cast(bboxes[k][None,...], tf.float32),
+            tf.cast(gt_bboxes[k][None,...], tf.float32),
+            )
+        bb = adjust_bbox(bboxes[k])
+        proposal_crops = crop_proposals(proposals[k], bb)
+        img_crops = crop_img(imgs[k], bb)
+        matched = tf.clip_by_value(matched, 0, 9999)
+        mask_crops = crop_masks(labels['mask_indices'][k], bb, matched[0,:])
+        ind = tf.cast(m_ious > min_iou, tf.int32) * (labels['class'][k] + 1)
+        return proposal_crops, img_crops, mask_crops, ind[0,:]
+
+    with tf.device("/gpu:0"):
+        imgs, labels = inputs
+
+        model_out=det_model((imgs, labels))
+        proposals = pred_labels(model_out['offsets'], model_out['weights'])
+        bboxes = bbox_of_proposals(proposals)
+        gt_bboxes = bbox_of_masks(labels['mask_indices'])
+
+
+        proposal_crops, img_crops, mask_crops, indices = tf.map_fn(
+            process_one_img,
+            tf.range(tf.shape(imgs)[0]),
+            fn_output_signature = (
+                tf.RaggedTensorSpec((None,64,64,1), tf.float32, 0),
+                tf.RaggedTensorSpec((None,64,64,1), tf.float32, 0),
+                tf.RaggedTensorSpec((None,64,64,1), tf.float32, 0),
+                tf.RaggedTensorSpec((None,), tf.int32, 0),
+            ),
+        )
+    return {
+          'source_image': img_crops.merge_dims(0,1),
+          'proposal': proposal_crops.merge_dims(0,1),
+          'gt_cell_type': indices.merge_dims(0,1),
+          'gt_mask': mask_crops.merge_dims(0,1),
+          'bbox': bboxes.merge_dims(0,1),
           }
 
 # output_signature = {
