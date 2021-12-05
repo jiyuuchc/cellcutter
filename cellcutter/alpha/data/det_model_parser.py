@@ -49,7 +49,7 @@ def _gen_training_data(masks, bboxes):
     weights = np.array(weights)
     indicator = np.expand_dims(np.argmax(weights, axis = 0), 0)
     weights = np.take_along_axis(weights, indicator, 0).squeeze()
-    weights = tf.expand_dims(weights, -1)
+    weights = np.expand_dims(weights, -1)
 
     locs = np.array(all_locs)
     x, y = np.meshgrid(np.arange(width), np.arange(height))
@@ -57,9 +57,19 @@ def _gen_training_data(masks, bboxes):
     dy = y[None, :, :] - locs[:,None,None,0]
     dx = np.take_along_axis(dx, indicator, 0).squeeze()
     dy = np.take_along_axis(dy, indicator, 0).squeeze()
-    dist_map = np.stack([dy,dx], -1) * tf.tile(tf.cast(weights>0, tf.float32), [1,1,2])
+    dist_map = np.stack([dy,dx], -1) * np.tile(tf.cast(weights>0, tf.float32), [1,1,2])
 
-    return weights, dist_map
+    heights = np.take_along_axis(
+        np.tile(np.expand_dims(bboxes[:,2]-bboxes[:,0],axis=(1,2)), [1, height, width]),
+        indicator, 0,
+    ).squeeze()
+    widths = np.take_along_axis(
+        np.tile(np.expand_dims(bboxes[:,3]-bboxes[:,1],axis=(1,2)), [1, height, width]),
+        indicator, 0,
+    ).squeeze()
+    size_map = np.stack([heights, widths], -1) * np.tile(tf.cast(weights>0, tf.float32), [1,1,2])
+
+    return weights, dist_map.astype(np.float32), size_map.astype(np.float32)
 
 def parser(image, labels, h=544, w=704):
     height = labels['height']
@@ -78,21 +88,14 @@ def parser(image, labels, h=544, w=704):
         [masks, bboxes],
         [tf.uint8, tf.bool]
     )
-    weights,dist_map = tf.numpy_function(
+    weights,dist_map, size_map = tf.numpy_function(
         _gen_training_data,
         [masks, bboxes],
-        [tf.float32, tf.float32],
+        [tf.float32, tf.float32, tf.float32],
     )
 
-    # flipped = False
-    # if random_horizontal_flip and tf.random.uniform(()) >= 0.5:
-    #     flipped = True
-    #     offsets = offsets[...,::-1,:] * [1,-1]
-    #     weights = weights[...,::-1,:]
-    #     image = image[...,::-1,:]
-    #     mask_indices = mask_indices * [1,1,-1] + [0,0,labels['width']-1]
-
     dist_map = tf.image.resize_with_crop_or_pad(dist_map, h, w)
+    size_map = tf.image.resize_with_crop_or_pad(size_map, h, w)
     weights = tf.image.resize_with_crop_or_pad(weights, h, w)
     image = tf.image.resize_with_crop_or_pad(image, h, w)
 
@@ -101,6 +104,7 @@ def parser(image, labels, h=544, w=704):
     bboxes = bboxes + [(h - height)//2, (w - width)//2, (h - height)//2, (w - width)//2]
 
     dist_map = tf.ensure_shape(dist_map, (h, w, 2))
+    size_map = tf.ensure_shape(size_map, (h, w, 2))
     weights = tf.ensure_shape(weights, (h, w, 1))
     is_broken = tf.ensure_shape(is_broken, (None,))
 
@@ -112,7 +116,31 @@ def parser(image, labels, h=544, w=704):
         'bboxes': bboxes,
         'mask_indices': mask_indices,
         'dist_map': dist_map,
+        'size_map': size_map,
         'weights': weights,
         'is_broken': is_broken,
     }
+    return image, new_labels
+
+def augment(image, labels):
+    image = image[...,::-1,:]
+    width = tf.shape(image)[-2]
+    mask_indices = labels['mask_indices']
+    dist_map = labels['dist_map'][:,::-1,:] * [1,-1]
+    size_map = labels['size_map'][:,::-1,:]
+    weights = labels['weights'][:,::-1,:]
+    mi = labels['mask_indices']*[1,1,-1] + [0,0,width-1]
+    bboxes = labels['bboxes'] *[1,-1,1,-1] + [0,width-1,0,width-1]
+    bboxes = tf.gather(bboxes, (0,3,2,1), axis=-1)
+
+    new_labels = {}
+    new_labels.update(labels)
+    # for k in labels:
+    #     new_labels[k] = labels[k]
+    new_labels['dist_map'] = dist_map
+    new_labels['size_map'] = size_map
+    new_labels['weights'] = weights
+    new_labels['bboxes'] = bboxes
+    new_labels['mask_indices'] = mi
+
     return image, new_labels

@@ -16,6 +16,7 @@ def _pred_labels(locations, weights, eps, min_samples, min_weight):
     return tf.constant(all_labels, dtype=tf.int32)
 
 def pred_labels(offsets, weights,  from_logits=True, eps = 0.9, min_samples = 4, min_weight=.1):
+    _, h, w, _ = offsets.get_shape()
     locations = decode_offsets(offsets)
     if from_logits:
         weights = tf.sigmoid(weights)
@@ -26,4 +27,5 @@ def pred_labels(offsets, weights,  from_logits=True, eps = 0.9, min_samples = 4,
         [locations, weights, eps, min_samples, min_weight],
         tf.int32,
     )
+    preds = tf.ensure_shape(preds, [None, h, w])
     return preds

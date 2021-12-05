@@ -25,23 +25,23 @@ def proposal_iou(preds, mi):
     out_spec = tf.TensorSpec(shape=(None,), dtype=tf.float32)
     return tf.map_fn(fn, elems, fn_output_signature=out_spec)
 
-@tf.function(input_signature=(tf.TensorSpec(shape=(None,None,None,2), dtype=tf.float32),))
 def decode_offsets(ofs: tf.Tensor):
-    h = tf.shape(ofs)[1]
-    w = tf.shape(ofs)[2]
+    _, h, w, _ = ofs.get_shape()
     x,y = tf.meshgrid(tf.range(w), tf.range(h))
     yx = tf.stack([y,x], axis=-1)
     yx = tf.cast(yx, tf.float32)
     return yx - ofs
 
 def _bbox_of_preds(preds_one_img): # for one image
-    h,w = preds_one_img.shape
-    bbox = np.array([r.bbox for r in regionprops(preds_one_img + 1)])
-    return bbox.astype(np.int32)
+    def np_func(img):
+      h,w = img.shape
+      bbox = np.array([r.bbox for r in regionprops(img + 1)], np.int32)
+      return bbox if bbox.size > 0 else bbox.reshape(0,4)
+    return tf.numpy_function(np_func, [preds_one_img], tf.int32)
 
 def bbox_of_proposals(proposals):
     return tf.map_fn(
-        lambda x: tf.numpy_function(_bbox_of_preds, [x], tf.int32),
+        _bbox_of_preds,
         proposals,
         fn_output_signature=tf.RaggedTensorSpec((None,4), tf.int32, 0)
     )
@@ -71,3 +71,53 @@ def bbox_of_masks(mi):
         mi,
         fn_output_signature=tf.RaggedTensorSpec((None, 4), tf.int32, 0)
     )
+
+def crop_features(feature: tf.Tensor, bboxes: tf.RaggedTensor, crop_size: int):
+    return tf.image.crop_and_resize(
+        feature, bboxes.merge_dims(0,1),
+        tf.repeat(tf.range(bboxes.nrows(), dtype=tf.int32), bboxes.row_lengths()),
+        [crop_size, crop_size]
+    )
+
+def crop_proposals(proposals: tf.Tensor, bboxes: tf.RaggedTensor, crop_size: int):
+    label2indicator = lambda x: tf.one_hot(x, tf.reduce_max(x)+1, axis=0, dtype=tf.uint8)
+    _, h, w = proposals.get_shape()
+    proposal_indicator = tf.map_fn(
+        label2indicator, proposals, fn_output_signature=tf.RaggedTensorSpec((None, h, w), tf.uint8, 0),
+    )
+    return tf.image.crop_and_resize(
+        tf.expand_dims(proposal_indicator.merge_dims(0,1), -1),
+        bboxes.merge_dims(0,1),
+        tf.range(tf.reduce_sum(bboxes.row_lengths()), dtype=tf.int32),
+        [crop_size, crop_size]
+    )
+
+def crop_masks(mask_indices: tf.RaggedTensor, bboxes: tf.RaggedTensor, matched_indices: tf.RaggedTensor, crop_size: int, h: int, w: int):
+    def get_masks(inputs):
+        unbatched_mask_indices, matched_indices = inputs
+        masks = tf.scatter_nd(
+            unbatched_mask_indices,
+            tf.ones(shape=(tf.shape(unbatched_mask_indices)[0],), dtype=tf.uint8),
+            shape=(unbatched_mask_indices[-1,0] + 1, h, w)
+        )
+        masks = tf.expand_dims(masks,-1)
+        masks = tf.gather(masks, matched_indices)
+        return masks
+    matched_indices = tf.clip_by_value(matched_indices, 0, 999999)
+    all_masks = tf.map_fn(
+        get_masks, [mask_indices, matched_indices],
+        fn_output_signature=tf.RaggedTensorSpec((None, h, w, 1), tf.uint8 , 0),
+    )
+    return tf.image.crop_and_resize(
+        all_masks.merge_dims(0,1),
+        bboxes.merge_dims(0,1),
+        tf.range(tf.reduce_sum(bboxes.row_lengths()), dtype=tf.int32),
+        [crop_size, crop_size]
+    )
+
+def mask_indices_to_image(mask_indices: tf.RaggedTensor, h:int=544, w:int=704):
+    def one_frame(mi):
+        n_masks = mi[-1,0] + 1
+        img = tf.reduce_sum(tf.scatter_nd(mi, tf.ones(tf.shape(mi)[0], tf.uint8), (n_masks,h,w)), axis=0)
+        return img
+    return tf.map_fn(one_frame, mask_indices, fn_output_signature=tf.TensorSpec((h,w), dtype=tf.uint8))
