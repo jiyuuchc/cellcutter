@@ -11,7 +11,8 @@ def _pred_labels(locations, weights, eps, min_samples, min_weight):
     for loc, w in zip(locations.numpy(), weights.numpy()):
         labels = np.ones_like(w, dtype=np.int32)*(-1)
         sel = w > min_weight
-        labels[sel] = dbscan.fit_predict(loc[sel,:], sample_weight=w[sel])
+        if np.any(sel):
+            labels[sel] = dbscan.fit_predict(loc[sel,:], sample_weight=w[sel])
         all_labels.append(labels)
     return tf.constant(all_labels, dtype=tf.int32)
 
