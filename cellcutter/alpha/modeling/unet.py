@@ -26,11 +26,11 @@ class UNetDownSampler(tf.keras.layers.Layer):
 
     def call(self, inputs, **kwargs):
         x = self._maxpool(inputs, **kwargs)
-        shortcut= x
         x = self._conv1(x, **kwargs)
+        shortcut = x
         x = self._conv2(x, **kwargs)
         if self._config_dict['resnet']:
-            x = tf.concat([x, shortcut], axis=-1)
+            x += shortcut
         return x
 
 class UNetUpSampler(tf.keras.layers.Layer):
@@ -48,7 +48,7 @@ class UNetUpSampler(tf.keras.layers.Layer):
             'kernel_regularizer': kernel_regularizer,
             'bias_regularizer': bias_regularizer,
         }
-        self._upsample = tf.keras.layers.UpSampling2D(name='upsampling')
+        self._upconv = tf.keras.layers.Conv2DTranspose(filters, 3, 2, name='upsampling', **conv_kwargs)
         self._conv1 = BatchConv2D(filters, name='conv_norm_1', **conv_kwargs)
         self._conv2 = BatchConv2D(filters, name='conv_norm_2',**conv_kwargs)
 
@@ -57,20 +57,23 @@ class UNetUpSampler(tf.keras.layers.Layer):
         return dict(list(base_config.items()) + list(self._config_dict.items()))
 
     def call(self, inputs, **kwargs):
-        x = self._upsample(inputs, **kwargs)
-        shortcut= x
+        x,y = inputs
+        x = self._upconv(x, **kwargs)
+        x = tf.concat([x, y], axis=-1)
         x = self._conv1(x, **kwargs)
+        shortcut = x
         x = self._conv2(x, **kwargs)
         if self._config_dict['resnet']:
-            x = tf.concat([x, shortcut], axis=-1)
+            x += shortcut
         return x
 
 class UNetEncoder(tf.keras.layers.Layer):
-    def __init__(self, n_filters=16, is_resnet=False, **kwargs):
+    def __init__(self, n_filters=16, n_layers = 4, is_resnet=False, **kwargs):
         super(UNetEncoder, self).__init__(**kwargs)
         self._config_dict = {
             'n_filters': n_filters,
             'is_resnet': is_resnet,
+            'n_layers': n_layers,
         }
 
     def get_config(self):
@@ -89,13 +92,12 @@ class UNetEncoder(tf.keras.layers.Layer):
                 BatchConv2D(n_filters, name='stem_1', **conv_kwargs),
                 BatchConv2D(n_filters, name='stem_2', **conv_kwargs),
                 ]
-        self._down_stack = [
-                UNetDownSampler(n_filters * 2, is_resnet, name='downsample_1'),
-                UNetDownSampler(n_filters * 4, is_resnet, name='downsample_2'),
-                UNetDownSampler(n_filters * 8, is_resnet, name='downsample_3'),
-                UNetDownSampler(n_filters * 16, is_resnet, name='downsample_4'),
-                UNetDownSampler(n_filters * 32, is_resnet, name='downsample_5'),
-                ]
+
+        self._down_stack = []
+        for k in range(self._config_dict['n_layers']):
+            n_filters *= 2
+            self._down_stack.append(UNetDownSampler(n_filters, is_resnet, name=f'downsample_{k+1}'),)
+
         super(UNetEncoder,self).build(input_shape)
 
     def call(self, data, **kwargs):
@@ -109,11 +111,12 @@ class UNetEncoder(tf.keras.layers.Layer):
         return outputs
 
 class UNetDecoder(tf.keras.layers.Layer):
-    def __init__(self, n_filters=16, is_resnet=False, **kwargs):
+    def __init__(self, n_filters=16, n_layers=4, is_resnet=False, **kwargs):
         super(UNetDecoder, self).__init__(**kwargs)
         self._config_dict = {
             'n_filters': n_filters,
             'is_resnet': is_resnet,
+            'n_layers': n_layers,
         }
 
     def get_config(self):
@@ -123,22 +126,23 @@ class UNetDecoder(tf.keras.layers.Layer):
     def build(self, input_shape):
         n_filters = self._config_dict['n_filters']
         is_resnet = self._config_dict['is_resnet']
+        n_layers = self._config_dict['n_layers']
         #self._conv1 = BatchConv2D(n_filters * 16, name='conv1')
         #self._conv2 = BatchConv2D(n_filters * 16, name='conv2')
-        self._up_stack = [
-                UNetUpSampler(n_filters * 16, is_resnet, name='upsample_1'), # x8
-                UNetUpSampler(n_filters * 8, is_resnet, name='upsample_2'), # x8
-                UNetUpSampler(n_filters * 4, is_resnet, name='upsample_3'), # x4
-                UNetUpSampler(n_filters * 2, is_resnet, name='upsample_4'),  # x2
-                UNetUpSampler(n_filters, is_resnet, name='upsample_5'),  # x1
-                ]
+        self._up_stack = []
+        n_filters *=  2 ** n_layers
+        for k in range(n_layers):
+            n_filters = n_filters // 2
+            self._up_stack.append(UNetUpSampler(n_filters, is_resnet, name=f'upsample_{k+1}'))
+
         super(UNetDecoder, self).build(input_shape)
 
     def call(self, data, **kwargs):
-        x = data['5'] #one more conv?
-        outputs={'5': x}
-        for layer, k in zip(self._up_stack, ['4','3','2','1','0']):
-            x = layer(x, **kwargs)
-            x = tf.concat([x, data[k]], axis = -1)
-            outputs.update({k:x})
+        n_layers = self._config_dict['n_layers']
+        x = data[str(n_layers)] #one more conv?
+        outputs={str(n_layers): x}
+        for k, layer in enumerate(self._up_stack):
+            k_str = str(n_layers - k - 1)
+            x = layer((x, data[k_str]), **kwargs)
+            outputs.update({k_str:x})
         return outputs
