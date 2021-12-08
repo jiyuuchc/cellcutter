@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
 from .unet import UNetDownSampler
-from .layers import *
+from .common import *
 
 class ShuffleUnit(tf.keras.layers.Layer):
     def __init__(self, in_channels, out_channels=None, down_sampling = False, **kwargs):
@@ -92,9 +92,9 @@ class ShuffleNetV2(tf.keras.layers.Layer):
 
         net_configs = self.shuffle_net_configs[config_key]
         stem_channels = net_configs[0]
-        self._stem1 = BatchConv2D(stem_channels, name='stem1')
-        self._stem2 = UNetDownSampler(stem_channels, name='stem2')
-        self._stem3 = UNetDownSampler(stem_channels*2, name='stem3')
+        self._stem1 = BatchConv2D(stem_channels//4, name='stem1')
+        self._stem2 = UNetDownSampler(stem_channels//2, name='stem2')
+        self._stem3 = UNetDownSampler(stem_channels, name='stem3')
 
         blocks = []
         in_channels = stem_channels

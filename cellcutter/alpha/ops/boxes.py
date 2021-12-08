@@ -46,3 +46,17 @@ def recover_boxes(boxes, regression_out):
     r1 = rr + hh / 2.
     c1 = cc + ww / 2.
     return tf.stack([r0,c0,r1,c1], axis=-1)
+
+def box_encode(boxes):
+    rr = (boxes[...,0] + boxes[...,2])/2
+    cc = (boxes[...,1] + boxes[...,3])/2
+    hh = boxes[...,2] - boxes[...,0]
+    ww = boxes[...,3] - boxes[...,1]
+    return tf.stack([rr,cc,hh,ww], axis=-1)
+
+def box_decode(boxes):
+    r0 = boxes[...,0] - boxes[...,2]/2
+    c0 = boxes[...,1] - boxes[...,3]/2
+    r1 = boxes[...,0] + boxes[...,2]/2
+    c1 = boxes[...,1] + boxes[...,3]/2
+    return tf.stack([r0,c0,r1,c1], axis=-1)

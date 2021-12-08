@@ -1,5 +1,5 @@
 import tensorflow as tf
-from .layers import *
+from .common import *
 
 class UNetDownSampler(tf.keras.layers.Layer):
     def __init__(self, filters, resnet = False, kernel_regularizer=None, bias_regularizer=None, **kwargs):

@@ -1,7 +1,7 @@
 ''' implementaion of the segmentation model '''
 import tensorflow as tf
 import tensorflow.keras.layers as layers
-from .layers import *
+from .common import *
 from .unet import *
 
 class SegModel(tf.keras.Model):

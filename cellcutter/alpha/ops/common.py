@@ -32,14 +32,14 @@ def decode_offsets(ofs: tf.Tensor):
     yx = tf.cast(yx, tf.float32)
     return yx - ofs
 
-def _bbox_of_preds(preds_one_img): # for one image
-    def np_func(img):
-      h,w = img.shape
-      bbox = np.array([r.bbox for r in regionprops(img + 1)], np.int32)
-      return bbox if bbox.size > 0 else bbox.reshape(0,4)
-    return tf.numpy_function(np_func, [preds_one_img], tf.int32)
-
 def bbox_of_proposals(proposals):
+    def _bbox_of_preds(preds_one_img): # for one image
+        def np_func(img):
+          h,w = img.shape
+          bbox = np.array([r.bbox for r in regionprops(img + 1)], np.int32)
+          return bbox if bbox.size > 0 else bbox.reshape(0,4)
+        return tf.numpy_function(np_func, [preds_one_img], tf.int32)
+
     return tf.map_fn(
         _bbox_of_preds,
         proposals,

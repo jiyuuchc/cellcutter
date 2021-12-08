@@ -307,9 +307,10 @@ def bbox_overlap(boxes, gt_boxes):
 def ragged_box_matching(ragged_boxes, ragged_gt_boxes, max_boxes=1600, max_gt_boxes=800):
     ''' same as box_matching, but take ragged tensor as input and output ragged tensors'''
 
-    boxes = ragged_boxes.to_tensor(-1, shape=[None, max_boxes, 4])
-    gt_boxes = ragged_gt_boxes.to_tensor(-1, shape=[None, max_gt_boxes, 4])
-
+    # boxes = ragged_boxes.to_tensor(-1, shape=[None, max_boxes, 4])
+    # gt_boxes = ragged_gt_boxes.to_tensor(-1, shape=[None, max_gt_boxes, 4])
+    boxes = ragged_boxes.to_tensor(-1)
+    gt_boxes = ragged_gt_boxes.to_tensor(-1)
     matched_boxes, matched_indices, matched_ious, ious = box_matching(boxes, gt_boxes)
 
     unpadding_indices = tf.where(boxes[:,:,0] != -1)
