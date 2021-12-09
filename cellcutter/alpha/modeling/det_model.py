@@ -12,25 +12,34 @@ class DetModel(tf.keras.Model):
         encoder,
         decoder,
         proposal_layer,
+        mask_layer = None,
         n_cls = 3,
         regression_conv_channels = 128,
         classification_fc_channels =128,
         regression_layer = 0,
         classification_layer = 4,
+        score_threshold = 0.05,
+        iou_threshold = 0.4,
+        with_mask = False,
     ):
         super(DetModel,self).__init__()
         self._encoder = encoder
         self._decoder = decoder
         self._proposal_layer = proposal_layer
+        self._mask_layer = mask_layer
         self._config_dict = {
             'encoder': encoder,
             'decoder': decoder,
             'proposal_layer': proposal_layer,
+            'mask_layer': mask_layer,
             'n_cls': n_cls,
             'regression_conv_channels': regression_conv_channels,
             'classification_fc_channels': classification_fc_channels,
             'regression_layer': regression_layer,
             'classification_layer': classification_layer,
+            'score_threshold': score_threshold,
+            'iou_threshold': iou_threshold,
+            'with_mask': with_mask,
         }
 
         self._metrics = self._build_metrics()
@@ -46,31 +55,18 @@ class DetModel(tf.keras.Model):
             BatchConv2D(n_ch, name='regression_conv1'),
             BatchConv2D(n_ch, name='regression_conv2'),
         ]
-        self._ofs_regression = tf.keras.layers.Conv2D(2 * n_cls, 1, padding='same', name='ofs_regression')
-        self._weight_layer = tf.keras.layers.Conv2D(n_cls, 1, padding='same', name='weights')
-        self._size_regression = tf.keras.layers.Conv2D(2 * n_cls, 1, padding='same', name='size_regression')
+        self._ofs_regression = tf.keras.layers.Conv2D(2 * n_cls, 1, padding='same', name='ofs_out')
+        self._weight_layer = tf.keras.layers.Conv2D(n_cls, 1, padding='same', name='weights_out')
+        self._size_regression = tf.keras.layers.Conv2D(2 * n_cls, 1, padding='same', name='size_out')
 
         self._classification_block = [
             tf.keras.layers.GlobalAveragePooling2D(),
-            tf.keras.layers.Dense(classification_fc_channels, activation='relu'),
+            tf.keras.layers.Dense(classification_fc_channels, activation='relu', name='cls_fc1'),
             tf.keras.layers.Dropout(.2),
-            tf.keras.layers.Dense(classification_fc_channels, activation='relu'),
+            tf.keras.layers.Dense(classification_fc_channels, activation='relu', name='cls_fc2',
             tf.keras.layers.Dropout(.2),
-            tf.keras.layers.Dense(n_cls, activation='softmax'),
+            tf.keras.layers.Dense(n_cls, activation='softmax', name='cls_out'),
         ]
-
-        # self._segmentation_conv_block = [
-        #     BatchConv2D(self._segmentation_conv_channels, name='seg_conv1'),
-        #     BatchConv2D(self._segmentation_conv_channels, name='seg_conv2'),
-        # ]
-        # self._segmentation_out = tf.keras.layers.Conv2D(self._n_classes, 3, padding='same')
-        # self._segmentation_score_block = [
-        #     layers.AveragePooling2D((4,4), name='score_pooling'),
-        #     layers.Flatten(name='score_flatten'),
-        #     layers.Dense(self._segmentation_fc_channels, activation='relu', name='score_dense1'),
-        #     layers.Dense(self._segmentation_fc_channels, activation='relu', name='score_dense2'),
-        #     layers.Dense(self._n_classes, name='score_out'),
-        # ]
 
     def get_config(self):
         return self._config_dict
@@ -83,6 +79,11 @@ class DetModel(tf.keras.Model):
 
         features = self._encoder(image, training=training)
         outputs = self._decoder(features, training=training)
+
+        model_outputs = {
+            'encoder_out': features,
+            'decoder_out': outputs,
+        }
 
         #x = outputs[str(regression_layer)]
         x = outputs[str(regression_layer)]
@@ -101,7 +102,7 @@ class DetModel(tf.keras.Model):
             x = layer(x, training=training)
         pred_cls = x
 
-        if training and labels is not None:
+        if labels is not None:
             cls = labels['class']
         else:
             cls = tf.argmax(pred_cls, axis=-1, output_type=tf.int32)
@@ -110,47 +111,56 @@ class DetModel(tf.keras.Model):
         sizes = tf.gather(sizes, tf.stack([cls*2, cls*2+1], axis=-1), axis=-1, batch_dims=1)
         weights = tf.gather(weights, cls[:,None], axis=-1, batch_dims=1)
 
-        model_outputs = {
+        model_outputs.update({
             'offsets': offsets,
             'weights': weights,
             'sizes': sizes,
             'cls': pred_cls,
-        }
+        })
         if not compute_mask:
             return model_outputs
 
-        proposal_out = self._proposal_layer(
-            (outputs[str(regression_layer)], model_outputs, cls),
-            training=training,
-        )
-
+        proposal_out = self._proposal_layer((labels, model_outputs), training=training,)
         model_outputs.update(proposal_out)
 
-        # scale_factor = tf.constant([h, w, h, w], tf.float32) / 2**regression_layer
-        # proposals = pred_labels(offsets, weights)
-        # proposal_bboxes = tf.cast(bbox_of_proposals(proposals), tf.float32) / scale_factor
-        # cls_repeat = tf.repeat(cls, proposal_bboxes.row_lengths())
-        # x = crop_features(outputs['0'], proposal_bboxes, self._crop_size)
-        # for layer in self._segmentation_conv_block:
-        #     x = layer(x)
-        # segmentation_out = self._segmentation_out(x)
-        # segmentation_out = tf.gather(segmentation_out, cls_repeat[:,None], axis=-1, batch_dims=1)
-        # for layer in self._segmentation_score_block:
-        #     x = layer(x)
-        # segmentation_score = tf.gather(x, cls_repeat[:,None], axis=-1, batch_dims=1)
-        #
-        # model_outputs.update({
-        #     'segmentations': segmentation_out,
-        #     'segmentation_score': segmentation_score,
-        #     'proposal_bboxes': proposal_bboxes,
-        # })
+        score_threshold = self._config_dict['score_threshold']
+        iou_threshold = self._config_dict['iou_threshold']
+        proposal_bboxes = model_out['proposal_bboxes']
+        rowlengths = proposal_bboxes.row_lengths()
+        bboxes = tf.RaggedTensor.from_row_lengths(model_out['regression_bboxes'], rowlengths)
+        scores = tf.RaggedTensor.from_row_lengths(model_out['regression_scores'], rowlengths)
+        def cleanup(inputs):
+            indices = tf.image.non_max_suppression(
+                  *inputs,
+                  max_output_size=2000,
+                  score_threshold=score_threshold,
+                  iou_threshold=iou_threshold,
+            )
+            sample_boxes = tf.gather(inputs[0], indices)
+            sample_scores = tf.gather(inputs[1], indices)
+            return sample_boxes, sample_scores
+        bboxes,scores = tf.map_fn(
+            cleanup,
+            [bboxes, scores],
+            fn_output_signature = [tf.RaggedTensorSpec((None,4),tf.float32,0), tf.RaggedTensorSpec(None,),tf.float32,0],
+        )
+        outputs.update({
+            'bboxes_out': boxes,
+            'bboxes_score_out': scores,
+        })
+
+        if self._config_dict['with_mask']:
+            masks = self._mask_layer((labels, model_out), training=training)
+            model_out.update({
+                'masks': masks,
+            })
         return model_outputs
 
     def _build_metrics(self):
         metrics = []
         metric_names = [
             'model_loss', 'ofs_loss', 'weight_loss', 'classification_loss', 'size_loss',
-            'proposal_score_loss', 'proposal_loss'
+            'proposal_score_loss', 'proposal_loss','mask_loss',
             #'segmentation_loss', 'score_loss',
             #'max_iou', 'a50', 'a75', 'a95', 'r50', 'r75', 'r95',
         ]
@@ -177,9 +187,6 @@ class DetModel(tf.keras.Model):
         gt_offsets = tf.nn.avg_pool2d(labels['dist_map'], ss, ss, 'SAME') / ss
         gt_sizes = tf.nn.avg_pool2d(labels['size_map'], ss, ss, 'SAME') / ss
         gt_weights = tf.nn.avg_pool2d(labels['weights'], ss, ss, 'SAME')
-        # gt_offsets = labels['dist_map']
-        # gt_sizes = labels['size_map']
-        # gt_weights = labels['weights']
         gt_cls = tf.expand_dims(labels['class'], -1)
 
         pred_cls = model_out['cls']
@@ -211,26 +218,12 @@ class DetModel(tf.keras.Model):
             model_loss += proposal_losses['proposal_score_loss']
             model_loss += proposal_losses['proposal_loss']
             losses.update(proposal_losses)
-        # _,h,w,_ = images.get_shape()
-        # bboxes = model_out['proposal_bboxes']
-        # gt_bboxes = tf.cast(labels['bboxes'] / [h,w,h,w], tf.float32)
-        # matched_bboxes, matched_indices, matched_ious, _ = ragged_box_matching(bboxes, gt_bboxes)
-        # gt_masks = crop_masks(labels['mask_indices'], bboxes, matched_indices,  self._crop_size, h, w)
-        # pos_indices = tf.where(matched_ious.merge_dims(0,1) > self._positive_iou)
-        # masks = tf.gather_nd(model_out['segmentations'], pos_indices)
-        # gt_masks = tf.gather_nd(gt_masks, pos_indices)
-        # segmentation_loss = tf.reduce_mean(iou_loss(gt_masks, masks, from_logits=True))
-        #
-        # scores = model_out['segmentation_score']
-        # score_loss = tf.reduce_mean(tf.losses.huber(matched_ious.merge_dims(0,1), scores, 0.5))
-        #
-        # model_loss += segmentation_loss + score_loss
-        #
-        # losses.update({
-        #     'model_loss': model_loss,
-        #     'segmentation_loss': segmentation_loss,
-        #     'score_loss': score_loss,
-        # })
+            if self._config_dict['with_mask']:
+                mask_loss = self._mask_layer._build_losses(labels, model_out)
+                model_loss += mask_loss
+                losses.update({
+                    'mask_loss': mask_loss,
+                })
         losses.update({
             'model_loss': model_loss,
         })
@@ -250,19 +243,6 @@ class DetModel(tf.keras.Model):
         imgs, labels = inputs
         model_out = self(inputs, training=False, compute_mask=compute_mask)
         metrics = self._build_losses(inputs, model_out, compute_mask=compute_mask)
-
-        # gt_bboxes = tf.cast(labels['bboxes'], tf.float32)
-        # n_gt_masks = tf.reduce_sum(gt_bboxes.row_lengths())
-        # proposals = pred_labels(model_out['offsets'], model_out['weights'], eps=1.0, min_samples=4.)
-        # bboxes = tf.cast(bbox_of_proposals(proposals), tf.float32) # ragged tensor
-        # _, matched_indices, matched_ious, _ = ragged_box_matching(bboxes, gt_bboxes)
-        #
-        # metrics.update({
-        #     'a50': tf.math.count_nonzero(matched_ious.merge_dims(0,1)>0.5) / n_gt_masks,
-        #     'a75': tf.math.count_nonzero(matched_ious.merge_dims(0,1)>0.75) / n_gt_masks,
-        #     'a95': tf.math.count_nonzero(matched_ious.merge_dims(0,1)>0.95) / n_gt_masks,
-        # })
-
         logs =  self.update_metrics(metrics)
         return logs
 
