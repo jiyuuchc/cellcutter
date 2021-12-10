@@ -63,7 +63,7 @@ class DetModel(tf.keras.Model):
             tf.keras.layers.GlobalAveragePooling2D(),
             tf.keras.layers.Dense(classification_fc_channels, activation='relu', name='cls_fc1'),
             tf.keras.layers.Dropout(.2),
-            tf.keras.layers.Dense(classification_fc_channels, activation='relu', name='cls_fc2',
+            tf.keras.layers.Dense(classification_fc_channels, activation='relu', name='cls_fc2'),
             tf.keras.layers.Dropout(.2),
             tf.keras.layers.Dense(n_cls, activation='softmax', name='cls_out'),
         ]
@@ -125,10 +125,10 @@ class DetModel(tf.keras.Model):
 
         score_threshold = self._config_dict['score_threshold']
         iou_threshold = self._config_dict['iou_threshold']
-        proposal_bboxes = model_out['proposal_bboxes']
+        proposal_bboxes = model_outputs['proposal_bboxes']
         rowlengths = proposal_bboxes.row_lengths()
-        bboxes = tf.RaggedTensor.from_row_lengths(model_out['regression_bboxes'], rowlengths)
-        scores = tf.RaggedTensor.from_row_lengths(model_out['regression_scores'], rowlengths)
+        bboxes = tf.RaggedTensor.from_row_lengths(model_outputs['regression_bboxes'], rowlengths)
+        scores = tf.RaggedTensor.from_row_lengths(model_outputs['regression_scores'], rowlengths)
         def cleanup(inputs):
             indices = tf.image.non_max_suppression(
                   *inputs,
@@ -142,15 +142,15 @@ class DetModel(tf.keras.Model):
         bboxes,scores = tf.map_fn(
             cleanup,
             [bboxes, scores],
-            fn_output_signature = [tf.RaggedTensorSpec((None,4),tf.float32,0), tf.RaggedTensorSpec(None,),tf.float32,0],
+            fn_output_signature = (tf.RaggedTensorSpec((None,4),tf.float32,0), tf.RaggedTensorSpec((None,),tf.float32,0)),
         )
-        outputs.update({
-            'bboxes_out': boxes,
+        model_outputs.update({
+            'bboxes_out': bboxes,
             'bboxes_score_out': scores,
         })
 
         if self._config_dict['with_mask']:
-            masks = self._mask_layer((labels, model_out), training=training)
+            masks = self._mask_layer((labels, model_outputs), training=training)
             model_out.update({
                 'masks': masks,
             })

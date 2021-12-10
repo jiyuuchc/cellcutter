@@ -7,7 +7,7 @@ from ..ops import *
 class ProposalLayer(tf.keras.layers.Layer):
     def __init__(self, n_cls=3, eps=1.0, min_samples=4.0, min_weight=0.01,
               crop_layer=1, crop_size=16, min_iou = 0.35,
-              conv_channels=64, fc_channels=512,
+              conv_channels=64, fc_channels=512, use_dbscan=False,
               **kwargs):
         super(ProposalLayer, self).__init__(**kwargs)
         self._config_dict = {
@@ -20,8 +20,9 @@ class ProposalLayer(tf.keras.layers.Layer):
             'min_iou': min_iou,
             'conv_channels': conv_channels,
             'fc_channels': fc_channels,
+            'use_dbscan': use_dbscan,
         }
-        self._pg = ProposalGenerator(n_cls, eps, min_samples, min_weight)
+        self._pg = ProposalGenerator(n_cls, eps, min_samples, min_weight, use_dbscan=use_dbscan)
 
     def get_config(self):
         config = super(ProposalLayer, self).get_config()
