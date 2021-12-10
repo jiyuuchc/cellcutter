@@ -205,7 +205,8 @@ class DetModel(tf.keras.Model):
         weight_loss = tf.reduce_mean(tf.losses.binary_crossentropy(gt_weights, weights, from_logits=True))
         classification_loss = tf.reduce_mean(tf.losses.categorical_crossentropy(tf.one_hot(gt_cls[:,0], self._config_dict['n_cls']), pred_cls))
 
-        model_loss = ofs_loss + weight_loss + size_loss
+        model_loss = ofs_loss + weight_loss + size_loss + classification_loss
+        #model_loss = ofs_loss + weight_loss + size_loss
 
         losses = {
             'ofs_loss': ofs_loss,
