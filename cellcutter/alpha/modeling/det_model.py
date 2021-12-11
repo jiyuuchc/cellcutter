@@ -19,7 +19,7 @@ class DetModel(tf.keras.Model):
         regression_layer = 0,
         classification_layer = 4,
         score_threshold = 0.05,
-        iou_threshold = 0.4,
+        iou_threshold = 0.45,
         with_mask = False,
     ):
         super(DetModel,self).__init__()
@@ -60,11 +60,10 @@ class DetModel(tf.keras.Model):
         self._size_regression = tf.keras.layers.Conv2D(2 * n_cls, 1, padding='same', name='size_out')
 
         self._classification_block = [
+            tf.keras.layers.Conv2D(classification_fc_channels, 3, strides=3, activation='relu', name='cls_conv1'),
             tf.keras.layers.GlobalAveragePooling2D(),
             tf.keras.layers.Dense(classification_fc_channels, activation='relu', name='cls_fc1'),
-            tf.keras.layers.Dropout(.2),
             tf.keras.layers.Dense(classification_fc_channels, activation='relu', name='cls_fc2'),
-            tf.keras.layers.Dropout(.2),
             tf.keras.layers.Dense(n_cls, activation='softmax', name='cls_out'),
         ]
 
@@ -97,7 +96,7 @@ class DetModel(tf.keras.Model):
             x = layer(x, training=training)
         sizes = self._size_regression(x)
 
-        x=outputs[str(classification_layer)]
+        x=features[str(classification_layer)]
         for layer in self._classification_block:
             x = layer(x, training=training)
         pred_cls = x
@@ -184,12 +183,14 @@ class DetModel(tf.keras.Model):
         images, labels = inputs
         regression_layer = self._config_dict['regression_layer']
         ss = 2 ** regression_layer
+
+        gt_cls = labels['class']
+        pred_cls = model_out['cls']
+
         gt_offsets = tf.nn.avg_pool2d(labels['dist_map'], ss, ss, 'SAME') / ss
         gt_sizes = tf.nn.avg_pool2d(labels['size_map'], ss, ss, 'SAME') / ss
         gt_weights = tf.nn.avg_pool2d(labels['weights'], ss, ss, 'SAME')
-        gt_cls = tf.expand_dims(labels['class'], -1)
 
-        pred_cls = model_out['cls']
         offsets = model_out['offsets']
         sizes = model_out['sizes']
         weights = model_out['weights']
@@ -203,7 +204,7 @@ class DetModel(tf.keras.Model):
         size_loss = 0.25 * ss * ss * tf.reduce_mean(tf.reduce_sum(size_loss * w, axis=(1,2)) / tf.reduce_sum(w, axis=(1,2)))
 
         weight_loss = tf.reduce_mean(tf.losses.binary_crossentropy(gt_weights, weights, from_logits=True))
-        classification_loss = tf.reduce_mean(tf.losses.categorical_crossentropy(tf.one_hot(gt_cls[:,0], self._config_dict['n_cls']), pred_cls))
+        classification_loss = tf.reduce_mean(tf.losses.categorical_crossentropy(tf.one_hot(gt_cls, self._config_dict['n_cls']), pred_cls))
 
         model_loss = ofs_loss + weight_loss + size_loss + classification_loss
         #model_loss = ofs_loss + weight_loss + size_loss
