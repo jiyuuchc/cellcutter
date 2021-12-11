@@ -16,18 +16,27 @@ class UNetDownSampler(tf.keras.layers.Layer):
             'kernel_regularizer': kernel_regularizer,
             'bias_regularizer': bias_regularizer,
         }
-        self._maxpool = tf.keras.layers.MaxPool2D(name='maxpool')
+        if self._config_dict['resnet']:
+            self._down_conv = tf.keras.layers.Conv2D(filters, 3, strides=2, name='down_conv', **conv_kwargs)
+        else:
+            self._maxpool = tf.keras.layers.MaxPool2D(name='maxpool')
         self._conv1 = BatchConv2D(filters, name='conv_norm_1', **conv_kwargs)
         self._conv2 = BatchConv2D(filters, name='conv_norm_2',**conv_kwargs)
 
     def get_config(self):
-        base_config = super(UNetDownSampler, self).get_config()
-        return dict(list(base_config.items()) + list(self._config_dict.items()))
+        config = super(ProposalLayer, self).get_config()
+        config.update(self._config_dict)
+        return config
 
     def call(self, inputs, **kwargs):
-        x = self._maxpool(inputs, **kwargs)
+        if self._config_dict['resnet']:
+            x = self._down_conv(inputs, **kwargs)
+            shortcut = x
+            x = tf.keras.activations.relu(x)
+        else:
+            x = self._maxpool(inputs, **kwargs)
+            shortcut = x
         x = self._conv1(x, **kwargs)
-        shortcut = x
         x = self._conv2(x, **kwargs)
         if self._config_dict['resnet']:
             x += shortcut
@@ -53,15 +62,16 @@ class UNetUpSampler(tf.keras.layers.Layer):
         self._conv2 = BatchConv2D(filters, name='conv_norm_2',**conv_kwargs)
 
     def get_config(self):
-        base_config = super(UNetUpSampler, self).get_config()
-        return dict(list(base_config.items()) + list(self._config_dict.items()))
+        config = super(ProposalLayer, self).get_config()
+        config.update(self._config_dict)
+        return config
 
     def call(self, inputs, **kwargs):
         x,y = inputs
         x = self._upconv(x, **kwargs)
+        shortcut = x
         x = tf.concat([x, y], axis=-1)
         x = self._conv1(x, **kwargs)
-        shortcut = x
         x = self._conv2(x, **kwargs)
         if self._config_dict['resnet']:
             x += shortcut
@@ -77,8 +87,9 @@ class UNetEncoder(tf.keras.layers.Layer):
         }
 
     def get_config(self):
-        base_config = super(UNetEncoder, self).get_config()
-        return dict(list(base_config.items()) + list(self._config_dict.items()))
+        config = super(ProposalLayer, self).get_config()
+        config.update(self._config_dict)
+        return config
 
     def build(self, input_shape):
         n_filters = self._config_dict['n_filters']
@@ -120,8 +131,9 @@ class UNetDecoder(tf.keras.layers.Layer):
         }
 
     def get_config(self):
-        base_config = super(UNetDecoder, self).get_config()
-        return dict(list(base_config.items()) + list(self._config_dict.items()))
+        config = super(ProposalLayer, self).get_config()
+        config.update(self._config_dict)
+        return config
 
     def build(self, input_shape):
         n_filters = self._config_dict['n_filters']
