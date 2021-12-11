@@ -304,7 +304,7 @@ def bbox_overlap(boxes, gt_boxes):
 
     return iou
 
-def ragged_box_matching(ragged_boxes, ragged_gt_boxes, max_boxes=1600, max_gt_boxes=800):
+def ragged_box_matching(ragged_boxes, ragged_gt_boxes):
     ''' same as box_matching, but take ragged tensor as input and output ragged tensors'''
 
     # boxes = ragged_boxes.to_tensor(-1, shape=[None, max_boxes, 4])
