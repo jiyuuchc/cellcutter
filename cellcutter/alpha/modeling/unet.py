@@ -16,15 +16,16 @@ class UNetDownSampler(tf.keras.layers.Layer):
             'kernel_regularizer': kernel_regularizer,
             'bias_regularizer': bias_regularizer,
         }
-        if self._config_dict['resnet']:
+        if resnet:
             self._down_conv = tf.keras.layers.Conv2D(filters, 3, strides=2, name='down_conv', **conv_kwargs)
         else:
             self._maxpool = tf.keras.layers.MaxPool2D(name='maxpool')
-        self._conv1 = BatchConv2D(filters, name='conv_norm_1', **conv_kwargs)
-        self._conv2 = BatchConv2D(filters, name='conv_norm_2',**conv_kwargs)
+        self._conv1 = tf.keras.layers.Conv2D(filters, 3, name='conv_1', activation='relu', **conv_kwargs)
+        self._conv2 = tf.keras.layers.Conv2D(filters, 3, name='conv_2', activation='relu', **conv_kwargs)
+        self._norm  = tf.keras.layers.BatchNormalization(name='norm')
 
     def get_config(self):
-        config = super(ProposalLayer, self).get_config()
+        config = super(UNetDownSampler,self).get_config()
         config.update(self._config_dict)
         return config
 
@@ -38,6 +39,7 @@ class UNetDownSampler(tf.keras.layers.Layer):
             shortcut = x
         x = self._conv1(x, **kwargs)
         x = self._conv2(x, **kwargs)
+        x = self._norm(x, **kwargs)
         if self._config_dict['resnet']:
             x += shortcut
         return x
@@ -58,11 +60,12 @@ class UNetUpSampler(tf.keras.layers.Layer):
             'bias_regularizer': bias_regularizer,
         }
         self._upconv = tf.keras.layers.Conv2DTranspose(filters, 3, 2, name='upsampling', **conv_kwargs)
-        self._conv1 = BatchConv2D(filters, name='conv_norm_1', **conv_kwargs)
-        self._conv2 = BatchConv2D(filters, name='conv_norm_2',**conv_kwargs)
+        self._conv1 = tf.keras.layers.Conv2D(filters, 3, name='conv_1', activation='relu', **conv_kwargs)
+        self._conv2 = tf.keras.layers.Conv2D(filters, 3, name='conv_2', activation='relu', **conv_kwargs)
+        self._norm  = tf.keras.layers.BatchNormalization(name='norm')
 
     def get_config(self):
-        config = super(ProposalLayer, self).get_config()
+        config = super(UNetUpSampler,self).get_config()
         config.update(self._config_dict)
         return config
 
@@ -70,9 +73,11 @@ class UNetUpSampler(tf.keras.layers.Layer):
         x,y = inputs
         x = self._upconv(x, **kwargs)
         shortcut = x
+        x = tf.keras.activations.relu(x)
         x = tf.concat([x, y], axis=-1)
         x = self._conv1(x, **kwargs)
         x = self._conv2(x, **kwargs)
+        x = self._norm(x, **kwargs)
         if self._config_dict['resnet']:
             x += shortcut
         return x
@@ -87,22 +92,17 @@ class UNetEncoder(tf.keras.layers.Layer):
         }
 
     def get_config(self):
-        config = super(ProposalLayer, self).get_config()
+        config = super(UNetEncoder, self).get_config()
         config.update(self._config_dict)
         return config
 
     def build(self, input_shape):
         n_filters = self._config_dict['n_filters']
         is_resnet = self._config_dict['is_resnet']
-        conv_kwargs = {
-            'padding': 'same',
-            'kernel_initializer': 'he_normal',
-            'activation': 'relu'
-        }
         self._stem = [
-                BatchConv2D(n_filters, name='stem_1', **conv_kwargs),
-                BatchConv2D(n_filters, name='stem_2', **conv_kwargs),
-                ]
+              tf.keras.layers.Conv2D(n_filters, 3, name='stem_1', padding='same', activation='relu', kernel_initializer='he_normal'),
+              tf.keras.layers.BatchNormalization(name='norm'),
+              ]
 
         self._down_stack = []
         for k in range(self._config_dict['n_layers']):
@@ -131,7 +131,7 @@ class UNetDecoder(tf.keras.layers.Layer):
         }
 
     def get_config(self):
-        config = super(ProposalLayer, self).get_config()
+        config = super(UNetDecoder, self).get_config()
         config.update(self._config_dict)
         return config
 
@@ -139,8 +139,6 @@ class UNetDecoder(tf.keras.layers.Layer):
         n_filters = self._config_dict['n_filters']
         is_resnet = self._config_dict['is_resnet']
         n_layers = self._config_dict['n_layers']
-        #self._conv1 = BatchConv2D(n_filters * 16, name='conv1')
-        #self._conv2 = BatchConv2D(n_filters * 16, name='conv2')
         self._up_stack = []
         n_filters *=  2 ** n_layers
         for k in range(n_layers):
