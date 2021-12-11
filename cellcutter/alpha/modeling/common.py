@@ -24,6 +24,6 @@ class BatchConv2D(tf.keras.layers.Layer):
 
     def call(self, inputs, **kwargs):
         x = self._conv(inputs, **kwargs)
-        x = self._batchnorm(x, **kwargs)
         x = self._activation(x, **kwargs)
+        x = self._batchnorm(x, **kwargs)
         return x
