@@ -23,13 +23,13 @@ class ProposalGenerator:
         self._iou_threshold = iou_threshold
         self._use_dbscan = use_dbscan
 
-    def _box_and_score_dbscan(self, offset_imgs, weight_imgs, size_imgs, epses, min_weights, topk=10000):
+    def _box_and_score_dbscan(self, offset_imgs, weight_imgs, size_imgs, epses, min_weights, topk=25000):
         batch_bboxes, batch_scores = _get_top_k(weight_imgs, offset_imgs, size_imgs, topk)
         def np_func(bboxes, scores, eps, min_weight):
             dbscan = DBSCAN(eps=eps, min_samples=min_weight)
-            pred_labels = dbscan.fit_predict(bboxes, sample_weight=scores)
+            pred_labels = dbscan.fit_predict(bboxes[:,:2], sample_weight=scores)
             pred_labels = pred_labels.reshape(-1,1) + 1
-            intensity_img = np.concatenate([scores[...,None],bboxes],axis=-1)
+            intensity_img = np.concatenate([scores[...,None], scores[...,None]*bboxes],axis=-1)
             rp = regionprops(pred_labels, intensity_image=intensity_img.reshape(-1,1,5))
             mean_values = np.array([r.mean_intensity for r in rp], np.float32)
             if mean_values.size == 0:
@@ -53,7 +53,7 @@ class ProposalGenerator:
         def nms(inputs):
             input_boxes, input_scores, score_threshold = inputs
             selected_indices = tf.image.non_max_suppression(
-                  input_boxes, input_scores, 2000,
+                  input_boxes, input_scores, 3000,
                   iou_threshold=self._iou_threshold,
                   score_threshold=score_threshold,
             )
