@@ -21,8 +21,9 @@ class ShuffleUnit(tf.keras.layers.Layer):
         self._layers = block
 
     def get_config(self):
-        base_config = super(UNetDownSampler, self).get_config()
-        return dict(list(base_config.items()) + list(self._config_dict.items()))
+        config = super(ShuffleUnit, self).get_config()
+        config.update(self._config_dict)
+        return config
 
     def call(self, x, **kwargs):
         for layer in self._layers:
@@ -54,8 +55,9 @@ class ShuffleBlock(tf.keras.layers.Layer):
             self._stack.append(ShuffleUnit(in_channels=out_channels//2, name=f'shuffle_{k+1}'))
 
     def get_config(self):
-        base_config = super(UNetDownSampler, self).get_config()
-        return dict(list(base_config.items()) + list(self._config_dict.items()))
+        config = super(ShuffleBlock, self).get_config()
+        config.update(self._config_dict)
+        return config
 
     def _shuffle_xy(self, x, y):
         batch_size, height, width, channels = x.shape[:]
@@ -89,12 +91,13 @@ class ShuffleNetV2(tf.keras.layers.Layer):
 
     def __init__(self, config_key, **kwargs):
         super(ShuffleNetV2, self).__init__(**kwargs)
-
+        self._config_dict = {
+            'config_key': config_key,
+        }
         net_configs = self.shuffle_net_configs[config_key]
         stem_channels = net_configs[0]
-        self._stem1 = BatchConv2D(stem_channels//4, name='stem1')
-        self._stem2 = UNetDownSampler(stem_channels//2, name='stem2')
-        self._stem3 = UNetDownSampler(stem_channels, name='stem3')
+        self._stem1 = tf.keras.layers.Conv2D(stem_channels, 3, strides=2, activation='relu', padding='same', name='stem_conv')
+        self._stem2 = tf.keras.layers.MaxPool2D(name='stem_pool')
 
         blocks = []
         in_channels = stem_channels
@@ -103,12 +106,16 @@ class ShuffleNetV2(tf.keras.layers.Layer):
             in_channels = out_channels
         self._blocks = blocks
 
+    def get_config(self):
+        config = super(ShuffleNetV2, self).get_config()
+        config.update(self._config_dict)
+        return config
+
     def call(self, x, **kwargs):
-        x = self._stem1(x)
         outputs = {'0': x}
-        x = self._stem2(x)
+        x = self._stem1(x)
         outputs['1'] = x
-        x = self._stem3(x)
+        x = self._stem2(x)
         outputs['2'] = x
 
         for k, shuffle_block in enumerate(self._blocks):
