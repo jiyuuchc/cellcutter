@@ -19,7 +19,7 @@ class DetModel(tf.keras.Model):
         regression_layer = 0,
         classification_layer = 4,
         score_threshold = 0.05,
-        iou_threshold = 0.45,
+        iou_threshold = 0.5,
         with_mask = False,
     ):
         super(DetModel,self).__init__()
