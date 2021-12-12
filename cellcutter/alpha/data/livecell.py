@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 import imageio
 import cv2
-from scipy.ndimage import distance_transform_edt, binary_fill_holes
+from scipy.ndimage import distance_transform_edt, binary_fill_holes, sobel
 from skimage.filters import threshold_otsu
+from sklearn.preprocessing import StandardScaler
 
 def annotation_to_indices(annotation, dense_shape):
     '''
@@ -52,11 +53,15 @@ def clean_mask(mask, th=40):
 
 def generator(df, img_path):
     cell_types = {'shsy5y': 0, 'astro': 1, 'cort': 2}
+    scaler = StandardScaler()
     for img_id in df.index.unique():
         img = imageio.imread(os.path.join(img_path, img_id + '.png')) / 255
+        sx = sobel(img,axis=0,mode='constant')
+        sy = sobel(img,axis=1,mode='constant')
+        # contrast
+        imgshape = img.shape
+        img = np.clip(scaler.fit_transform(img.reshape(-1,1)), -2, 2).reshape(*imgshape) / 4.0
 
-        # weights=[]
-        # locs=[]
         all_indices = []
         all_bboxes = []
         for k, ann in enumerate(df.loc[img_id, 'annotation']):
@@ -67,28 +72,8 @@ def generator(df, img_path):
             indices = np.insert(indices,0,k,axis=0).transpose()
             all_indices.append(indices)
             all_bboxes.append(bbox)
-            # r,c,mask = indices_to_mask(indices)
-            # loc = indices.mean(axis=1)
-            # w = compute_weights(mask, loc - [r,c])
-            # locs.append(loc)
-            # tmp = np.zeros(shape=img.shape, dtype=np.float32)
-            # tmp[r:r+w.shape[0], c:c+w.shape[1]] = w
-            # weights.append(tmp)
-        # locs = np.array(locs)
-        # weights = np.array(weights)
-        # indicator = np.expand_dims(np.argmax(weights, axis = 0), 0)
         all_indices = np.concatenate(all_indices, axis=0)
         all_bboxes = np.array(all_bboxes)
-
-        # weights = np.take_along_axis(weights, indicator, 0).squeeze()
-        # weights = tf.expand_dims(weights, -1)
-
-        # x, y = np.meshgrid(np.arange(img.shape[-1]), np.arange(img.shape[-2]))
-        # dx = x[None, :, :] - locs[:,None,None,1]
-        # dy = y[None, :, :] - locs[:,None,None,0]
-        # dx = np.take_along_axis(dx, indicator, 0).squeeze()
-        # dy = np.take_along_axis(dy, indicator, 0).squeeze()
-        # dist_map = np.stack([dy,dx], -1) * tf.tile(tf.cast(weights>0, tf.float32), [1,1,2])
 
         cls = cell_types[df.loc[img_id,'cell_type'][0]]
 
@@ -103,18 +88,19 @@ def generator(df, img_path):
             'bboxes': all_bboxes,
         }
 
-        yield img[:,:,None], labels
+        img = np.stack([img,sx,sy],axis=-1)
+        yield img, labels
+        #yield img[:,:,None], labels
 
 def get_output_signature(h=520, w=704):
     return (
-      tf.TensorSpec(shape=(h, w, 1), dtype=tf.float32),
+#      tf.TensorSpec(shape=(h, w, 1), dtype=tf.float32),
+      tf.TensorSpec(shape=(h, w, 3), dtype=tf.float32),
       {
           'source_id': tf.TensorSpec(shape=(), dtype=tf.string),
           'height': tf.TensorSpec(shape=(), dtype=tf.int32),
           'width': tf.TensorSpec(shape=(), dtype=tf.int32),
           'class': tf.TensorSpec(shape=(), dtype=tf.int32),
-          # 'dist_map': tf.TensorSpec(shape=(h,w,2), dtype=tf.float32),
-          # 'weights': tf.TensorSpec(shape=(h,w,1), dtype=tf.float32),
           'mask_indices': tf.TensorSpec(shape=(None,3), dtype=tf.int32),
           'bboxes': tf.TensorSpec(shape=(None,4), dtype=tf.int32)
       },
