@@ -199,11 +199,14 @@ class DetModel(tf.keras.Model):
         ofs_loss = tf.losses.huber(gt_offsets, offsets, 200)
         ofs_loss = tf.reduce_mean(tf.reduce_sum(ofs_loss * w, axis=(1,2))/tf.reduce_sum(w, axis=(1,2)))*ss*ss
 
-        size_loss = tf.losses.huber(gt_sizes, sizes, 200)
         w = tf.cast(gt_weights[...,0] > 0.5, tf.float32)
+        size_loss = tf.losses.huber(gt_sizes, sizes, 200)
         size_loss = 0.25 * ss * ss * tf.reduce_mean(tf.reduce_sum(size_loss * w, axis=(1,2)) / tf.reduce_sum(w, axis=(1,2)))
 
-        weight_loss = tf.reduce_mean(tf.losses.binary_crossentropy(gt_weights, weights, from_logits=True))
+        w = tf.cast(gt_weights[...,0] >= 0, tf.float32)
+        weight_loss = tf.losses.binary_crossentropy(gt_weights, weights, from_logits=True)
+        weight_loss = tf.reduce_mean(tf.reduce_sum(weight_loss * w, axis=(1,2)) / tf.reduce_sum(w, axis=(1,2)))
+
         classification_loss = tf.reduce_mean(tf.losses.categorical_crossentropy(tf.one_hot(gt_cls, self._config_dict['n_cls']), pred_cls))
 
         model_loss = ofs_loss + weight_loss + size_loss + classification_loss

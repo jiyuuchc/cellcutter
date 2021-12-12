@@ -96,10 +96,10 @@ def generator(df, img_path, preprocessing):
         else:
             yield img[:,:,None], labels
 
-def get_output_signature(h=520, w=704):
+def get_output_signature(preprocessing=True, h=520, w=704):
     return (
 #      tf.TensorSpec(shape=(h, w, 1), dtype=tf.float32),
-      tf.TensorSpec(shape=(h, w, 3), dtype=tf.float32),
+      tf.TensorSpec(shape=(h, w, 3 if preprocessing else 1), dtype=tf.float32),
       {
           'source_id': tf.TensorSpec(shape=(), dtype=tf.string),
           'height': tf.TensorSpec(shape=(), dtype=tf.int32),
@@ -113,5 +113,5 @@ def get_output_signature(h=520, w=704):
 def as_dataset(dataframe, img_dir, preprocessing=True, img_h = 520, img_w = 704):
     return tf.data.Dataset.from_generator(
         lambda: generator(dataframe, img_dir, preprocessing),
-        output_signature = get_output_signature(img_h, img_w),
+        output_signature = get_output_signature(preprocessing, img_h, img_w),
         )

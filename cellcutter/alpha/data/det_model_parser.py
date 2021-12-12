@@ -31,7 +31,7 @@ def _fix_label(masks, bboxes):
         broken_flags.append(is_broken)
     return masks, np.array(broken_flags)
 
-def _gen_training_data(masks, bboxes):
+def _gen_training_data(masks, bboxes, is_broken):
     _, height, width = masks.shape
     weights = []
     all_locs = []
@@ -48,6 +48,11 @@ def _gen_training_data(masks, bboxes):
 
     weights = np.array(weights)
     indicator = np.expand_dims(np.argmax(weights, axis = 0), 0)
+
+    # set weights of broken maskes to -1, ignored during traing
+    is_broken[0] = False # a dirty fix, don't overwrite first mask since we need all the zeros here
+    weights[is_broken]=-1.0
+
     weights = np.take_along_axis(weights, indicator, 0).squeeze()
     weights = np.expand_dims(weights, -1)
 
@@ -90,7 +95,7 @@ def parser(image, labels, h=544, w=704):
     )
     weights,dist_map, size_map = tf.numpy_function(
         _gen_training_data,
-        [masks, bboxes],
+        [masks, bboxes, is_broken],
         [tf.float32, tf.float32, tf.float32],
     )
 
