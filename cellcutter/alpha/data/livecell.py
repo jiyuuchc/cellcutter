@@ -51,16 +51,18 @@ def clean_mask(mask, th=40):
     targets = (diff[:, 1] == 0) & (np.abs(diff[:, 0]) >= th)  # find horizontal lines longer than threshold
     return mask, (True in targets)
 
-def generator(df, img_path):
+def generator(df, img_path, preprocessing):
     cell_types = {'shsy5y': 0, 'astro': 1, 'cort': 2}
     scaler = StandardScaler()
     for img_id in df.index.unique():
         img = imageio.imread(os.path.join(img_path, img_id + '.png')) / 255
-        sx = sobel(img,axis=0,mode='constant')
-        sy = sobel(img,axis=1,mode='constant')
-        # contrast
-        imgshape = img.shape
-        img = np.clip(scaler.fit_transform(img.reshape(-1,1)), -2, 2).reshape(*imgshape) / 4.0
+
+        if preprocessing:
+            sx = sobel(img,axis=0,mode='constant')
+            sy = sobel(img,axis=1,mode='constant')
+            # contrast
+            imgshape = img.shape
+            img = np.clip(scaler.fit_transform(img.reshape(-1,1)), -2, 2).reshape(*imgshape) / 4.0
 
         all_indices = []
         all_bboxes = []
@@ -88,9 +90,11 @@ def generator(df, img_path):
             'bboxes': all_bboxes,
         }
 
-        img = np.stack([img,sx,sy],axis=-1)
-        yield img, labels
-        #yield img[:,:,None], labels
+        if preprocessing:
+            img = np.stack([img,sx,sy],axis=-1)
+            yield img, labels
+        else:
+            yield img[:,:,None], labels
 
 def get_output_signature(h=520, w=704):
     return (
@@ -106,8 +110,8 @@ def get_output_signature(h=520, w=704):
       },
     )
 
-def as_dataset(dataframe, img_dir, img_h = 520, img_w = 704):
+def as_dataset(dataframe, img_dir, preprocessing=True, img_h = 520, img_w = 704):
     return tf.data.Dataset.from_generator(
-        lambda: generator(dataframe, img_dir),
+        lambda: generator(dataframe, img_dir, preprocessing),
         output_signature = get_output_signature(img_h, img_w),
         )
