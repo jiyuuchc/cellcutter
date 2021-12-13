@@ -56,6 +56,7 @@ class ProposalLayer(tf.keras.layers.Layer):
             'proposal_bboxes': bboxes,
             'proposal_scores': scores,
         }
+        tf.debugging.assert_positive(bboxes.row_lengths(), 'Proposal box list is empty')
 
         crop_size = self._config_dict['crop_size']
         crop_layer = self._config_dict['crop_layer']
@@ -97,11 +98,11 @@ class ProposalLayer(tf.keras.layers.Layer):
         regression_results = tf.gather(model_out['regressions'], pos_indices)
         regression_targets = compare_boxes(good_proposal_bboxes, gt_good_bboxes)
         regression_loss = tf.reduce_mean(tf.losses.huber(regression_targets, regression_results, 0.5))
-        regression_loss = tf.cond(tf.math.is_nan(regression_loss), lambda :tf.constant(0, tf.float32), lambda:regression_loss)
-        #regression_loss = tf.reduce_mean(tfa.losses.giou_loss(gt_good_bboxes, pred_good_bboxes, 'giou'))
 
         gt_scores = box_ious(tf.stop_gradient(model_out['regression_bboxes']), tf.stop_gradient(matched_bboxes.values))
+        tf.debugging.assert_all_finite(gt_scores, 'ious computation returned unexpected Nan or Inf')
         scores = model_out['regression_scores']
+        tf.debugging.assert_positive(tf.size(scores), 'Proposal box list is empty')
         regression_score_loss = tf.reduce_mean(tf.losses.huber(gt_scores, scores, 0.5))
 
         losses = {
