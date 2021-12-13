@@ -10,7 +10,8 @@ def box_ious(boxes_a, boxes_b):
     c1 = tf.minimum(boxes_a[...,3], boxes_b[...,3])
     hh = tf.maximum(r1 - r0, 0.)
     ww = tf.maximum(c1 - c0, 0.)
-    ious = hh*ww / (area_a + area_b - hh*ww)
+    union = tf.clip_by_value(area_a + area_b - hh*ww, 1.e-6, 1.e6)
+    ious = hh*ww / union
     return tf.cast(ious, tf.float32)
 
 def compare_boxes(boxes, gt_boxes):
@@ -32,7 +33,7 @@ def compare_boxes(boxes, gt_boxes):
     return tf.stack([drr, dcc, dhh, dww], axis=-1)
 
 def recover_boxes(boxes, regression_out):
-    ''' alter boxes based on relate changes '''
+    ''' alter boxes based on relative changes '''
     rr = (boxes[...,0] + boxes[...,2])/2
     cc = (boxes[...,1] + boxes[...,3])/2
     hh = boxes[...,2] - boxes[...,0]
