@@ -10,8 +10,9 @@ def box_ious(boxes_a, boxes_b):
     c1 = tf.minimum(boxes_a[...,3], boxes_b[...,3])
     hh = tf.maximum(r1 - r0, 0.)
     ww = tf.maximum(c1 - c0, 0.)
-    union = tf.clip_by_value(area_a + area_b - hh*ww, 1.e-6, 1.e6)
-    ious = hh*ww / union
+    ii = hh * ww
+    uu = area_a + area_b - ii + 1.e-8
+    ious = ii / uu
     return tf.cast(ious, tf.float32)
 
 def compare_boxes(boxes, gt_boxes):
