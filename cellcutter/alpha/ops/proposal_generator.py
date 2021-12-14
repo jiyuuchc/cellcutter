@@ -37,14 +37,19 @@ class ProposalGenerator:
             area = np.array([r.area for r in rp], dtype=np.float32)
             new_scores = mean_values[:,0] * area
             new_bboxes = mean_values[:, 1:5] / mean_values[:,0:1]
+            new_bboxes = box_decode(new_bboxes)
+            selected_indices = tf.image.non_max_suppression(
+                  new_bboxes, new_scores, 3000,
+                  iou_threshold=self._iou_threshold,
+            )
+            new_bboxes = tf.gather(new_bboxes, selected_indices)
+            new_scores = tf.gather(new_scores, selected_indices)
             return new_bboxes, new_scores
         boxes,scores= tf.map_fn(
             lambda x: tf.numpy_function(np_func, x, [tf.float32, tf.float32]),
             (batch_bboxes, batch_scores, epses,  min_weights),
             fn_output_signature=[tf.RaggedTensorSpec((None, 4), tf.float32, 0), tf.RaggedTensorSpec((None,), tf.float32, 0)],
         )
-        boxes = box_decode(boxes.values)
-        boxes = tf.RaggedTensor.from_row_lengths(boxes, scores.row_lengths())
         return boxes, scores
 
     def _box_and_score_simple(self, offset_imgs, weight_imgs, size_imgs, min_w, topk=50000):
