@@ -3,83 +3,95 @@ import tensorflow.keras.layers as layers
 from .unet import UNetDownSampler
 from .common import *
 
+def _shuffle_xy(xy):
+    _, height, width, channels = xy.get_shape()
+    xy_split = tf.stack(tf.split(xy, num_or_size_splits=2, axis=-1), axis=-1)
+    return tf.reshape(xy_split, [-1, height, width, channels])
+
+class ShuffleDownUnit(tf.keras.layers.Layer):
+    def __init__(self, n_channels, **kwargs):
+        super(ShuffleDownUnit, self).__init__(**kwargs)
+        self._config_dict = {
+            'n_channels': n_channels,
+        }
+        self._block_y = [
+            layers.Conv2D(n_channels//2, 1, activation='relu', name='cy1'),
+            layers.BatchNormalization(name='cy1_norm'),
+            layers.DepthwiseConv2D(kernel_size=3, strides=2, padding='SAME', name='cy2'),
+            layers.BatchNormalization(name='cy2_norm'),
+            layers.Conv2D(n_channels//2, 1, activation='relu', name='cy3'),
+            layers.BatchNormalization(name='cy3_norm'),
+        ]
+        self._block_x = [
+            layers.DepthwiseConv2D(kernel_size=3, strides=2, padding='SAME', name='cx1'),
+            layers.BatchNormalization(name='cx1_norm'),
+            layers.Conv2D(n_channels//2, 1, activation='relu', name='cx2'),
+            layers.BatchNormalization(name='cx2_norm'),
+        ]
+
+    def get_config(self):
+        config = super(ShuffleDownUnit, self).get_config()
+        config.update(self._config_dict)
+        return config
+
+    def call(self, xy, **kwargs):
+        y = xy
+        for layer in self._block_y:
+            y = layer(y)
+        x = xy
+        for layer in self._block_x:
+            x = layer(x)
+        xy = tf.concat([x,y], axis=-1)
+        return _shuffle_xy(xy)
+
 class ShuffleUnit(tf.keras.layers.Layer):
-    def __init__(self, in_channels, out_channels=None, down_sampling = False, **kwargs):
+    def __init__(self, n_channels, **kwargs):
         super(ShuffleUnit, self).__init__(**kwargs)
         self._config_dict = {
-            'in_channels': in_channels,
-            'out_channels': out_channels,
-            'down_sampling': down_sampling,
+            'n_channels': n_channels,
         }
-        strides = 2 if down_sampling else 1
-        out_channels = out_channels if out_channels else in_channels
         block=[]
-        block.append(BatchConv2D(in_channels, size=1, name='c1'))
-        block.append(layers.DepthwiseConv2D(kernel_size=3, strides=strides, padding='SAME', name='c2_conv'))
+        block.append(layers.Conv2D(n_channels//2, 1, activation='relu', name='c1'))
+        block.append(layers.BatchNormalization(name='c1_norm'))
+        block.append(layers.DepthwiseConv2D(kernel_size=3, padding='SAME', name='c2_conv'))
         block.append(layers.BatchNormalization(name='c2_norm'))
-        block.append(BatchConv2D(out_channels, size=1, name='c3'))
-        self._layers = block
+        block.append(layers.Conv2D(n_channels//2, 1, activation='relu', name='c3'))
+        block.append(layers.BatchNormalization(name='c3_norm'))
+        self._block = block
 
     def get_config(self):
         config = super(ShuffleUnit, self).get_config()
         config.update(self._config_dict)
         return config
 
-    def call(self, x, **kwargs):
-        for layer in self._layers:
-            x = layer(x, **kwargs)
-        return x
+    def call(self, xy, **kwargs):
+        x, y = tf.split(xy, num_or_size_splits=2, axis=-1)
+        for layer in self._block:
+            y = layer(y, **kwargs)
+        xy = tf.concat([x,y], axis=-1)
+        return _shuffle_xy(xy)
 
 class ShuffleBlock(tf.keras.layers.Layer):
-    def __init__(self, num_units, in_channels, out_channels=None, **kwargs):
+    def __init__(self, n_units, n_channels, **kwargs):
         super(ShuffleBlock, self).__init__(**kwargs)
         self._config_dict = {
-            'num_units': num_units,
-            'in_channels': in_channels,
-            'out_channels': out_channels,
+            'n_units': n_units,
+            'n_channels': n_channels,
         }
-        out_channels = 2 * self.in_channels if out_channels is None else out_channels
 
-        self._branch1 = [
-            layers.DepthwiseConv2D(kernel_size=3, strides=2, padding='SAME', name='branch2_conv1'),
-            layers.BatchNormalization(name='branch2_norm1'),
-            layers.ReLU(name='branch2_relu1'),
-            layers.Conv2D(out_channels//2, 1, padding='same', name='branch2_conv2'),
-            layers.BatchNormalization(name='branch2_norm2'),
-            layers.ReLU(name='branch2_relu2'),
-        ]
-        self._branch2 = ShuffleUnit(in_channels=in_channels, out_channels=out_channels//2, down_sampling=True, name='branch1')
-
-        self._stack = []
-        for k in range(num_units):
-            self._stack.append(ShuffleUnit(in_channels=out_channels//2, name=f'shuffle_{k+1}'))
+        self._stack = [ShuffleDownUnit(n_channels, name='down')]
+        for k in range(n_units):
+            self._stack.append(ShuffleUnit(n_channels, name=f'shuffle_{k+1}'))
 
     def get_config(self):
         config = super(ShuffleBlock, self).get_config()
         config.update(self._config_dict)
         return config
 
-    def _shuffle_xy(self, x, y):
-        batch_size, height, width, channels = x.shape[:]
-        depth = channels
-        z = tf.stack([x, y], axis=-1)
-        z = tf.transpose(z, [0, 1, 2, 4, 3])
-        z = tf.reshape(z, [-1, height, width, 2*depth])
-        x, y = tf.split(z, num_or_size_splits=2, axis=3)
-        return x, y
-
-    def call(self, x, **kwargs):
-        branch2 = self._branch2(x, **kwargs)
-        for layer in self._branch1:
-            x = layer(x, **kwargs)
-        branch1 = x
-
-        basic_uint_count = 0
-        for shuffle_unit in self._stack:
-            branch1, branch2 = self._shuffle_xy(branch1, branch2)
-            branch1 = shuffle_unit(branch1, **kwargs)
-
-        return layers.concatenate([branch1, branch2])
+    def call(self, xy, **kwargs):
+        for layer in self._stack:
+            xy = layer(xy)
+        return xy
 
 class ShuffleNetV2(tf.keras.layers.Layer):
     shuffle_net_configs = {
@@ -96,14 +108,16 @@ class ShuffleNetV2(tf.keras.layers.Layer):
         }
         net_configs = self.shuffle_net_configs[config_key]
         stem_channels = net_configs[0]
-        self._stem1 = tf.keras.layers.Conv2D(stem_channels, 3, strides=2, activation='relu', padding='same', name='stem_conv')
-        self._stem2 = tf.keras.layers.MaxPool2D(name='stem_pool')
+        self._stem1 = layers.Conv2D(stem_channels, 3, strides=2, activation='relu', padding='same', name='stem_conv1')
+        self._norm1 = layers.BatchNormalization(name='stem1norm')
+        self._stem2 = tf.keras.layers.Conv2D(stem_channels * 2, 3, strides=2, activation='relu', padding='same', name='stem_conv2')
+        self._norm2 = layers.BatchNormalization(name='stem2norm')
+
+        #self._stem2 = tf.keras.layers.MaxPool2D(name='pool')
 
         blocks = []
-        in_channels = stem_channels
-        for num_units, out_channels in net_configs[1]:
-            blocks.append(ShuffleBlock(num_units=num_units, in_channels=in_channels, out_channels=out_channels))
-            in_channels = out_channels
+        for n_units, n_channels in net_configs[1]:
+            blocks.append(ShuffleBlock(n_units=n_units, n_channels=n_channels))
         self._blocks = blocks
 
     def get_config(self):
@@ -114,8 +128,10 @@ class ShuffleNetV2(tf.keras.layers.Layer):
     def call(self, x, **kwargs):
         outputs = {'0': x}
         x = self._stem1(x)
+        x = self._norm1(x)
         outputs['1'] = x
         x = self._stem2(x)
+        x = self._norm2(x)
         outputs['2'] = x
 
         for k, shuffle_block in enumerate(self._blocks):
