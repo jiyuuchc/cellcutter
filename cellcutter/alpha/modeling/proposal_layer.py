@@ -91,13 +91,16 @@ class ProposalLayer(tf.keras.layers.Layer):
         gt_bboxes = tf.cast(labels['bboxes'], tf.float32) / [oh, ow, oh, ow] # ragged tensor
         bboxes = model_out['proposal_bboxes']
         matched_bboxes, matched_indices, matched_ious, _ = ragged_box_matching(bboxes, gt_bboxes)
-
         pos_indices = tf.where(matched_ious.values > self._config_dict['min_iou'])
-        good_proposal_bboxes = tf.gather(bboxes.values, pos_indices)
-        gt_good_bboxes = tf.gather(matched_bboxes.values, pos_indices)
-        regression_results = tf.gather(model_out['regressions'], pos_indices)
-        regression_targets = compare_boxes(good_proposal_bboxes, gt_good_bboxes)
-        regression_loss = tf.reduce_mean(tf.losses.huber(regression_targets, regression_results, 0.5))
+
+        pred_boxes = tf.gather(model_out['regression_bboxes'], pos_indices)
+        gt_boxes = tf.gather(matched_bboxes.values, pos_indices)
+        regression_loss = tf.reduce_mean(tfa.losses.giou_loss(gt_boxes, pred_boxes))
+        # good_proposal_bboxes = tf.gather(bboxes.values, pos_indices)
+        # gt_good_bboxes = tf.gather(matched_bboxes.values, pos_indices)
+        # regression_results = tf.gather(model_out['regressions'], pos_indices)
+        # regression_targets = compare_boxes(good_proposal_bboxes, gt_good_bboxes)
+        # regression_loss = tf.reduce_mean(tf.losses.huber(regression_targets, regression_results, 0.5))
 
         gt_scores = box_ious(tf.stop_gradient(model_out['regression_bboxes']), tf.stop_gradient(matched_bboxes.values))
         tf.debugging.assert_all_finite(gt_scores, 'ious computation returned unexpected Nan or Inf')
