@@ -149,10 +149,10 @@ class DetModel(tf.keras.Model):
         })
 
         if self._config_dict['with_mask']:
-            masks = self._mask_layer((labels, model_outputs), training=training)
-            model_out.update({
-                'masks': masks,
-            })
+            data = outputs, bboxes, scores, cls
+            mask_results = self._mask_layer((data, labels), training=training)
+            model_out.update(mask_results)
+
         return model_outputs
 
     def _build_metrics(self):

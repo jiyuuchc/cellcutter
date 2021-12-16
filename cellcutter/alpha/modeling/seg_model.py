@@ -83,3 +83,10 @@ class SegModel(tf.keras.Model):
         mask_loss = self._mask_layer._compute_losses(labels, model_out)
         logs = self._update_metrics({'mask_loss': mask_loss})
         return logs
+
+    def predict(self, inputs):
+        imgs, bboxes, scores, cls = inputs
+        features = self._encoder(imgs, training=False)
+        outputs = self._decoder(features, training=False)
+        data = outputs, bboxes, scores, cls
+        return self._mask_layer.predict(data)
