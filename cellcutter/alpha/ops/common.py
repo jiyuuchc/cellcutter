@@ -79,6 +79,32 @@ def crop_features(feature: tf.Tensor, bboxes: tf.RaggedTensor, crop_size: int):
         [crop_size, crop_size]
     )
 
+def ious_of_masks(mi_a, mi_b, h=544, w=704):
+    n_mask_a = mi_a[-1,0] + 1
+    n_mask_b = mi_b[-1,0] + 1
+    mask_stack_a = tf.scatter_nd(mi_a, tf.ones((tf.shape(mi_a)[0],), tf.bool), [n_mask_a, h, w])
+    mask_stack_b = tf.scatter_nd(mi_b, tf.ones((tf.shape(mi_b)[0],), tf.bool), [n_mask_b, h, w])
+    #mask_areas_a = tf.math.count_nonzero(mask_stack_a, axis=(1,2))
+    mask_areas_b = tf.math.count_nonzero(mask_stack_b, axis=(1,2))
+
+    def iou_one_row(one_mask):
+        intersects = tf.math.count_nonzero(one_mask & mask_stack_b, axis=(1,2))
+        unions = tf.math.count_nonzero(one_mask) + mask_areas_b - intersects
+        return tf.cast(intersects, tf.float32) / (tf.cast(unions, tf.float32) + 1.0e-7)
+    ious = tf.map_fn(
+        iou_one_row,
+        mask_stack_a,
+        fn_output_signature=tf.TensorSpec((None,), tf.float32),
+    )
+    return ious
+
+def masks_to_label_img(mi, h=544, w=704):
+    n_masks = mi[-1,0] + 1
+    mask_stack = tf.scatter_nd(mi, tf.ones((tf.shape(mi)[0],), tf.int32), [n_masks, h, w])
+    l = tf.range(n_masks, dtype=tf.int32)[::-1] + 1
+    label_img = tf.reduce_max(mask_stack * l[:,None,None], axis=0)
+    return label_img - 1
+
 def crop_proposals(proposals: tf.Tensor, bboxes: tf.RaggedTensor, crop_size: int):
     label2indicator = lambda x: tf.one_hot(x, tf.reduce_max(x)+1, axis=0, dtype=tf.uint8)
     _, h, w = proposals.get_shape()
