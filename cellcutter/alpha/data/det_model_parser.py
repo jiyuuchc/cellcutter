@@ -128,24 +128,35 @@ def parser(image, labels, h=544, w=704):
     return image, new_labels
 
 def augment(image, labels):
-    image = image[...,::-1,:]
-    width = tf.shape(image)[-2]
-    mask_indices = labels['mask_indices']
-    dist_map = labels['dist_map'][:,::-1,:] * [1,-1]
-    size_map = labels['size_map'][:,::-1,:]
-    weights = labels['weights'][:,::-1,:]
-    mi = labels['mask_indices']*[1,1,-1] + [0,0,width-1]
-    bboxes = labels['bboxes'] *[1,-1,1,-1] + [0,width-1,0,width-1]
-    bboxes = tf.gather(bboxes, (0,3,2,1), axis=-1)
-
     new_labels = {}
     new_labels.update(labels)
-    # for k in labels:
-    #     new_labels[k] = labels[k]
+    height, width, _ = image.get_shape()
+    mi = labels['mask_indices']
+    dist_map = labels['dist_map']
+    size_map = labels['size_map']
+    weights = labels['weights']
+    bboxes = labels['bboxes']
+    if tf.random.uniform([])>=.5:
+        image = image[:,::-1,:]
+        dist_map = dist_map[:,::-1,:] * [1,-1]
+        size_map = size_map[:,::-1,:]
+        weights = weights[:,::-1,:]
+        mi = mi*[1,1,-1] + [0,0,width-1]
+        bboxes = bboxes*[1,-1,1,-1] + [0,width-1,0,width-1]
+        bboxes = tf.gather(bboxes, (0,3,2,1), axis=-1)
+    if tf.random.uniform([])>=.5:
+        image = image[::-1,:,:]
+        dist_map = dist_map[::-1,:,:] * [-1, 1]
+        size_map = size_map[::-1,:,:]
+        weights = weights[::-1,:,:]
+        mi = mi*[1,-1,1] + [0,height-1,0]
+        bboxes = bboxes*[-1,1,-1,1] + [height-1,0,height-1,0]
+        bboxes = tf.gather(bboxes, (2,1,0,3), axis=-1)
+        # for k in labels:
+        #     new_labels[k] = labels[k]
     new_labels['dist_map'] = dist_map
     new_labels['size_map'] = size_map
     new_labels['weights'] = weights
     new_labels['bboxes'] = bboxes
     new_labels['mask_indices'] = mi
-
     return image, new_labels
