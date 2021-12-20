@@ -58,7 +58,7 @@ def decode_one_img(masks_one_img, bboxes_one_img, scores_one_img, threshold, h, 
         # mi = tf.gather_nd(mi, indices)
         # return tf.scatter_nd(mi, tf.ones((tf.shape(mi)[0],), tf.bool), [h,w])
         return mi
-    bboxes_one_img = tf.cast(tf.math.round(bboxes_one_img * [h, w, h, w]), tf.int32)
+    bboxes_one_img = tf.cast(tf.math.round(bboxes_one_img * [h-1, w-1, h-1, w-1]), tf.int32)
     mis = tf.map_fn(
         decode_one_mask,
         [tf.cast(masks_one_img, tf.float32), bboxes_one_img],
@@ -92,7 +92,7 @@ def decode_one_img(masks_one_img, bboxes_one_img, scores_one_img, threshold, h, 
     # return tf.where(mask_stack), scores
 
 class MaskLayer(tf.keras.layers.Layer):
-    def __init__(self, n_cls=3, crop_layer=0, crop_size=32, n_convs=3, conv_channels=48, min_iou=0.5, min_score=0.2, min_overlap=0.2, **kwargs):
+    def __init__(self, n_cls=3, crop_layer=0, crop_size=32, n_convs=3, conv_channels=48, min_iou=0.7, min_score=0.2, min_overlap=0.2, **kwargs):
         super(MaskLayer, self).__init__(**kwargs)
         self._config_dict = {
             'n_cls': n_cls,
@@ -139,7 +139,7 @@ class MaskLayer(tf.keras.layers.Layer):
             indices = tf.RaggedTensor.from_value_rowids(indices[:,1], indices[:,0])
             mIds = tf.gather(mIds, indices, batch_dims=1)
             bboxes = tf.gather(bboxes, indices, batch_dims=1)
-            scores = tf.gather(scores, indices, batch_dims=1)
+            # scores = tf.gather(scores, indices, batch_dims=1)
         else:
             indices = tf.where(scores > self._config_dict['min_score'])
             indices = tf.RaggedTensor.from_value_rowids(indices[:,1], indices[:,0])
