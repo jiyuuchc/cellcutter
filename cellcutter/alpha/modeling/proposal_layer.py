@@ -1,8 +1,78 @@
 import tensorflow as tf
-import tensorflow_addons as tfa
 from .common import *
 from .unet import *
 from ..ops import *
+
+def giou_loss(y_true: TensorLike, y_pred: TensorLike, mode: str = "giou") -> tf.Tensor:
+    """Implements the GIoU loss function.
+    GIoU loss was first introduced in the
+    [Generalized Intersection over Union:
+    A Metric and A Loss for Bounding Box Regression]
+    (https://giou.stanford.edu/GIoU.pdf).
+    GIoU is an enhancement for models which use IoU in object detection.
+    Args:
+        y_true: true targets tensor. The coordinates of the each bounding
+            box in boxes are encoded as [y_min, x_min, y_max, x_max].
+        y_pred: predictions tensor. The coordinates of the each bounding
+            box in boxes are encoded as [y_min, x_min, y_max, x_max].
+        mode: one of ['giou', 'iou'], decided to calculate GIoU or IoU loss.
+    Returns:
+        GIoU loss float `Tensor`.
+    """
+    if mode not in ["giou", "iou"]:
+        raise ValueError("Value of mode should be 'iou' or 'giou'")
+    y_pred = tf.convert_to_tensor(y_pred)
+    if not y_pred.dtype.is_floating:
+        y_pred = tf.cast(y_pred, tf.float32)
+    y_true = tf.cast(y_true, y_pred.dtype)
+    giou = tf.squeeze(_calculate_giou(y_pred, y_true, mode))
+
+    return 1 - giou
+
+
+def _calculate_giou(b1: TensorLike, b2: TensorLike, mode: str = "giou") -> tf.Tensor:
+    """
+    Args:
+        b1: bounding box. The coordinates of the each bounding box in boxes are
+            encoded as [y_min, x_min, y_max, x_max].
+        b2: the other bounding box. The coordinates of the each bounding box
+            in boxes are encoded as [y_min, x_min, y_max, x_max].
+        mode: one of ['giou', 'iou'], decided to calculate GIoU or IoU loss.
+    Returns:
+        GIoU loss float `Tensor`.
+    """
+    zero = tf.convert_to_tensor(0.0, b1.dtype)
+    b1_ymin, b1_xmin, b1_ymax, b1_xmax = tf.unstack(b1, 4, axis=-1)
+    b2_ymin, b2_xmin, b2_ymax, b2_xmax = tf.unstack(b2, 4, axis=-1)
+    b1_width = tf.maximum(zero, b1_xmax - b1_xmin)
+    b1_height = tf.maximum(zero, b1_ymax - b1_ymin)
+    b2_width = tf.maximum(zero, b2_xmax - b2_xmin)
+    b2_height = tf.maximum(zero, b2_ymax - b2_ymin)
+    b1_area = b1_width * b1_height
+    b2_area = b2_width * b2_height
+
+    intersect_ymin = tf.maximum(b1_ymin, b2_ymin)
+    intersect_xmin = tf.maximum(b1_xmin, b2_xmin)
+    intersect_ymax = tf.minimum(b1_ymax, b2_ymax)
+    intersect_xmax = tf.minimum(b1_xmax, b2_xmax)
+    intersect_width = tf.maximum(zero, intersect_xmax - intersect_xmin)
+    intersect_height = tf.maximum(zero, intersect_ymax - intersect_ymin)
+    intersect_area = intersect_width * intersect_height
+
+    union_area = b1_area + b2_area - intersect_area
+    iou = tf.math.divide_no_nan(intersect_area, union_area)
+    if mode == "iou":
+        return iou
+
+    enclose_ymin = tf.minimum(b1_ymin, b2_ymin)
+    enclose_xmin = tf.minimum(b1_xmin, b2_xmin)
+    enclose_ymax = tf.maximum(b1_ymax, b2_ymax)
+    enclose_xmax = tf.maximum(b1_xmax, b2_xmax)
+    enclose_width = tf.maximum(zero, enclose_xmax - enclose_xmin)
+    enclose_height = tf.maximum(zero, enclose_ymax - enclose_ymin)
+    enclose_area = enclose_width * enclose_height
+    giou = iou - tf.math.divide_no_nan((enclose_area - union_area), enclose_area)
+    return giou
 
 class ProposalLayer(tf.keras.layers.Layer):
     def __init__(self, n_cls=3, eps=1.0, min_weight=0.01,
@@ -95,7 +165,7 @@ class ProposalLayer(tf.keras.layers.Layer):
 
         pred_boxes = tf.gather(model_out['regression_bboxes'], pos_indices)
         gt_boxes = tf.gather(matched_bboxes.values, pos_indices)
-        regression_loss = tf.reduce_mean(tfa.losses.giou_loss(gt_boxes, pred_boxes))
+        regression_loss = tf.reduce_mean(giou_loss(gt_boxes, pred_boxes))
         # good_proposal_bboxes = tf.gather(bboxes.values, pos_indices)
         # gt_good_bboxes = tf.gather(matched_bboxes.values, pos_indices)
         # regression_results = tf.gather(model_out['regressions'], pos_indices)
